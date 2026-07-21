@@ -1,90 +1,364 @@
-# PathFinder
+<p align="center">
+  <img src="frontend/public/favicon.svg" alt="PathFinder" width="80" />
+</p>
 
-Automatic job portal that fetches Python developer jobs from RSS, Technopark, and Cutshort, matches them against your profile, auto-sends CV + cover letter via Gmail, and displays everything on a Django dashboard.
+<h1 align="center">PathFinder</h1>
 
-**Created by Dennis Joseph** — [GitHub](https://github.com/dennisjoseph2025) · [LinkedIn](https://www.linkedin.com/in/dennisjoseph2025)
+<p align="center">
+  <strong>AI-powered job portal that fetches, matches, and applies to jobs — all on autopilot.</strong>
+</p>
+
+<p align="center">
+  <a href="#-features">Features</a> ·
+  <a href="#-tech-stack">Tech Stack</a> ·
+  <a href="#-quick-start">Quick Start</a> ·
+  <a href="#-full-setup-guide">Full Setup</a> ·
+  <a href="#-ai-setup">AI Setup</a> ·
+  <a href="#-usage">Usage</a> ·
+  <a href="#-api-reference">API</a> ·
+  <a href="#-contributing">Contributing</a> ·
+  <a href="#-contributors">Contributors</a> ·
+  <a href="#-legal--educational-disclaimer">Disclaimer</a> ·
+  <a href="#-license">License</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/Django-5.0+-092E20?style=flat-square&logo=django&logoColor=white" alt="Django" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/PRs-Welcome-orange?style=flat-square" alt="PRs Welcome" />
+</p>
+
+---
+
+PathFinder is an automated job portal that scrapes Python developer jobs from **RSS feeds**, **Technopark**, and **Cutshort**, matches them against your profile using a weighted scoring engine, generates **AI-powered cover letters**, and sends applications via Gmail — all displayed on a modern React dashboard.
+
+---
 
 ## Features
 
 - **Multi-source job fetching** — RSS (3000+ jobs), Technopark (130+ jobs), Cutshort (300+ jobs)
-- **Smart matching** — weighted skill scoring (60%), experience (15%), project relevance (20%), title (5%)
-- **Auto-apply** — generates JD-aware cover letter and sends via Gmail SMTP
+- **Smart matching engine** — weighted scoring: skills (60%), project relevance (20%), experience (15%), title (5%)
+- **AI cover letters** — provider-agnostic LLM integration (OpenAI, Groq, DeepSeek, Gemini, OpenRouter) with hallucination-proof validation
+- **Batch apply** — send applications to multiple jobs with one click via Gmail SMTP
+- **Real-time progress** — WebSocket-powered fetcher progress bar
 - **Profile management** — editable from the dashboard, takes effect on next fetch cycle
 - **Skill gap analysis** — filters out jobs requiring >40% unknown skills
-- **Experience range filtering** — only matches jobs within your experience bracket
-- **Location + salary filtering** — respects your preferences
-- **Dashboard** — dark UI with stats, charts, job cards, application tracking
+- **Experience + salary + location filtering** — respects your preferences
+- **Coverage warnings** — shows which job requirements your cover letter misses
+- **Modern SPA** — React 19 + TypeScript 6 + Vite 8 dashboard with Flat Design 2.0
 
-## Prerequisites
+---
 
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) package manager (recommended) or pip
-- Gmail account with [App Password](https://myaccount.google.com/apppasswords) enabled
+## Tech Stack
 
-## Installation
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | Django 5, Django REST Framework 3.17, Django Channels 4.3 |
+| **Frontend** | React 19, TypeScript 6, Vite 8, React Router 7, Axios |
+| **Charts** | Chart.js 4 |
+| **AI / LLM** | OpenAI-compatible API (OpenAI, Groq, DeepSeek, Gemini, OpenRouter) |
+| **HTTP Client** | httpx (HTTP/2) for scraping, Axios for frontend |
+| **HTML Parsing** | BeautifulSoup 4, lxml |
+| **Database** | SQLite3 (dev), PostgreSQL (prod) |
+| **WebSocket** | Django Channels + Daphne (ASGI) |
+| **Encryption** | Fernet (cryptography) for credential storage |
+| **Package Manager** | uv (Python), npm (frontend) |
+| **Linter** | Ruff (Python), Oxlint (TypeScript) |
+| **Testing** | Pytest + pytest-django |
+
+---
+
+## Quick Start
+
+> **Requirements:** Python 3.10+, Node.js 18+, [uv](https://docs.astral.sh/uv/) (recommended)
 
 ```bash
-# Clone the repo
-git clone https://github.com/dennisjoseph2025/pathfinder.git
-cd pathfinder
+# 1. Clone
+git clone https://github.com/nkswalih/PathFinder.git
+cd PathFinder
 
-# Create virtual environment and install dependencies
+# 2. Backend setup
 uv sync
-# or
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-pip install django httpx[http2] beautifulsoup4 schedule jinja2 python-dotenv lxml
+copy .env.example .env          # Windows
+# cp .env.example .env          # macOS/Linux
+
+# 3. Configure (edit .env — see Full Setup below)
+
+# 4. Database
+python manage.py migrate
+
+# 5. Frontend setup
+cd frontend
+npm install
+cd ..
+
+# 6. Run (development)
+python manage.py runserver       # Terminal 1 — Django on :8000
+cd frontend && npm run dev       # Terminal 2 — Vite on :5173
 ```
 
-## Configuration
+Open **http://localhost:5173** — the Vite dev server proxies API calls to Django automatically.
 
-### 1. Create `.env`
+---
+
+## Full Setup Guide
+
+### 1. Clone the repository
 
 ```bash
-copy .env.example .env
+git clone https://github.com/nkswalih/PathFinder.git
+cd PathFinder
+```
+
+### 2. Install Python dependencies
+
+Using **uv** (recommended):
+
+```bash
+uv sync
+```
+
+Or with **pip**:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate           # Windows
+# source .venv/bin/activate      # macOS/Linux
+pip install -e ".[dev]"
+```
+
+### 3. Install frontend dependencies
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+### 4. Create environment file
+
+```bash
+copy .env.example .env           # Windows
+# cp .env.example .env           # macOS/Linux
 ```
 
 Edit `.env` with your values:
 
-| Variable | Description |
-|----------|-------------|
-| `DJANGO_SECRET_KEY` | Any random string (e.g. `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"`) |
-| `EMAIL_USER` | Your Gmail address |
-| `EMAIL_PASS` | Gmail App Password (16 chars, no spaces) |
-| `RESUME_PATH` | Path to your resume PDF (e.g. `resume/Your_Resume.pdf`) |
+```env
+# Required
+DJANGO_SECRET_KEY=your-random-secret-key
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASS=your-gmail-app-password
 
-### 2. Create your profile
+# Optional — resume (legacy, upload via dashboard instead)
+# RESUME_PATH=resume/Your_Resume.pdf
+
+# Optional — AI cover letter generation (configure via dashboard > Profile > AI)
+# AI_PROVIDER=openai
+# AI_API_BASE_URL=https://api.openai.com/v1
+# AI_API_KEY=sk-your-api-key
+# AI_MODEL=gpt-4o-mini
+
+# Optional — Production database
+# DB_ENGINE=django.db.backends.postgresql
+# DB_NAME=pathfinder
+# DB_USER=postgres
+# DB_PASSWORD=your-db-password
+# DB_HOST=localhost
+# DB_PORT=5432
+```
+
+<details>
+<summary><strong>Full environment variable reference</strong></summary>
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DJANGO_SECRET_KEY` | `dev-insecure-key` | Django secret key — generate a real one for production |
+| `EMAIL_USER` | — | Gmail address for sending applications |
+| `EMAIL_PASS` | — | Gmail [App Password](https://myaccount.google.com/apppasswords) (16 chars, no spaces) |
+| `RESUME_PATH` | `resume/Your_Resume.pdf` | **Legacy** — resume path fallback (prefer uploading via dashboard) |
+| `AI_PROVIDER` | `openai` | LLM provider: `openai`, `groq`, `deepseek`, `gemini`, `openrouter` |
+| `AI_API_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
+| `AI_API_KEY` | — | API key for the LLM provider |
+| `AI_MODEL` | `gpt-4o-mini` | Model to use for cover letter generation |
+| `FETCH_INTERVAL_MINUTES` | `60` | How often the scheduler fetches new jobs |
+| `EMAIL_SMTP_HOST` | `smtp.gmail.com` | SMTP server |
+| `EMAIL_SMTP_PORT` | `465` | SMTP port |
+| `DB_ENGINE` | `sqlite3` | Database backend (use `postgresql` for prod) |
+| `DB_NAME` | `db.sqlite3` | Database name |
+| `DB_USER` | — | Database user |
+| `DB_PASSWORD` | — | Database password |
+| `DB_HOST` | `localhost` | Database host |
+| `DB_PORT` | `5432` | Database port |
+
+</details>
+
+### 5. Create your candidate profile
 
 ```bash
-copy config\profile.example.py config\profile.py
+copy config\profile.example.py config\profile.py    # Windows
+# cp config/profile.example.py config/profile.py    # macOS/Linux
 ```
 
 Edit `config/profile.py` with your real info:
 
-- **name** — your full name
-- **email** — your email
-- **phone** — your phone number
-- **experience_min / experience_max** — your experience range in years
-- **skills** — categorize your skills under `backend`, `frontend`, `ai_llm`, `cloud`, `devops`, `tools`
-- **projects** — name, description, and tech stack for each project
-- **looking_for** — target job titles
-
-You can also edit your profile from the dashboard at `http://localhost:8000/profile/` — changes take effect on the next fetch cycle without restarting.
-
-### 3. Place your resume
-
-Put your resume PDF in the `resume/` folder:
-
+```python
+CANDIDATE_PROFILE = {
+    "name": "John Doe",
+    "email": "john@example.com",
+    "phone": "+91-9876543210",
+    "experience_min": 2,
+    "experience_max": 5,
+    "skills": {
+        "backend": ["python", "django", "fastapi", "postgresql"],
+        "frontend": ["react", "javascript", "typescript"],
+        "ai_llm": ["langchain", "openai api"],
+        "cloud": ["aws", "docker"],
+        "devops": ["github actions", "nginx"],
+        "tools": ["git", "linux", "redis"],
+    },
+    "projects": [
+        {
+            "name": "ProjectX",
+            "description": "Real-time analytics dashboard",
+            "tech": ["django", "channels", "react", "postgresql"],
+        }
+    ],
+    "looking_for": ["python developer", "django developer", "full stack developer"],
+}
 ```
-resume/
-  Your_Resume.pdf
-```
 
-### 4. Run migrations
+You can also edit your profile from the dashboard at **http://localhost:8000/profile/** — changes take effect on the next fetch cycle without restarting.
+
+### 6. Upload your resume
+
+Resumes are uploaded through the **dashboard** (not placed on disk manually):
+
+1. Start the server (`python manage.py runserver`)
+2. Open **http://localhost:8000/profile/**
+3. Click the resume upload area and select your PDF
+4. Max **5MB**, PDF only — old resume is automatically replaced on new upload
+
+Uploaded resumes are stored in `media/resumes/` (Django `FileField`).
+
+> **Legacy fallback:** The `RESUME_PATH` env var (`resume/Your_Resume.pdf`) is still used by the SMTP applicant as a fallback if no resume is uploaded via the dashboard. You can safely ignore it if you upload through the UI.
+
+### 7. Run database migrations
 
 ```bash
 python manage.py migrate
 ```
+
+### 8. Start the application
+
+**Development (two terminals):**
+
+```bash
+# Terminal 1 — Django backend
+python manage.py runserver
+
+# Terminal 2 — Vite frontend (with hot reload)
+cd frontend
+npm run dev
+```
+
+Then open **http://localhost:5173**.
+
+**Production:**
+
+```bash
+# Build frontend
+cd frontend
+npm run build                    # Outputs to ../static/
+
+# Run with Daphne (ASGI — supports WebSocket)
+python manage.py runserver       # or use daphne directly
+```
+
+In production, Django serves the built frontend from `static/` directly — no separate Vite server needed.
+
+---
+
+## AI Setup
+
+PathFinder generates AI-powered cover letters using any **OpenAI-compatible** LLM provider. Configure it from the dashboard — no env vars needed.
+
+### Dashboard configuration (recommended)
+
+1. Open **http://localhost:8000/profile/**
+2. Switch to the **AI** tab
+3. Select your **provider** from the dropdown (presets auto-fill the base URL and model)
+4. Enter your **API key** — encrypted with Fernet before saving to the database
+5. Click **Save**
+
+That's it. Open any job in the **Apply Queue** or **Jobs** page and click **Generate Cover Letter**.
+
+### Provider presets
+
+| Provider | Base URL | Default Model | Notes |
+|----------|----------|---------------|-------|
+| **OpenAI** | `api.openai.com/v1` | `gpt-4o-mini` | Best balance of quality and cost |
+| **Groq** | `api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | Fastest inference, free tier available |
+| **DeepSeek** | `api.deepseek.com/v1` | `deepseek-chat` | Cheapest, great for batch jobs |
+| **Gemini** | `generativelanguage.googleapis.com/v1beta/openai/` | `gemini-2.5-flash` | Google's free tier is generous |
+| **OpenRouter** | `openrouter.ai/api/v1` | `auto` | Access to 100+ models via one key |
+
+### How cover letter generation works
+
+```
+User clicks "Generate" on Job Detail page
+  ↓
+Backend sends system + user prompts to configured LLM
+  ↓
+Response parsed — think tags stripped (DeepSeek R1, QwQ, o1, o3, o4-mini)
+  ↓
+Deterministic validation layer:
+  ├── Checks salutation ("Dear Hiring Manager" / "Dear [Company]")
+  ├── Checks signature (candidate name, phone, email)
+  ├── Blocks forbidden skills (skills NOT in your profile)
+  ├── Blocks ungrounded claims (vague testing/monitoring/security claims)
+  ├── Blocks project misattribution (projects only mentioned in YOUR profile)
+  ├── Blocks acronym expansion ("REST" → "Representational State Transfer")
+  └── Coverage warning if >30% of job requirements are unaddressed
+  ↓
+Letter saved to Application.cover_letter_text
+  ↓
+User reviews, edits if needed, then clicks "Apply" to send via Gmail
+```
+
+### Environment variable overrides
+
+If you prefer env vars over the dashboard, add these to `.env`:
+
+```env
+AI_PROVIDER=openai
+AI_API_BASE_URL=https://api.openai.com/v1
+AI_API_KEY=sk-your-api-key
+AI_MODEL=gpt-4o-mini
+```
+
+> **Note:** Dashboard settings take priority over env vars. If you've saved a config in the dashboard, the env vars are ignored.
+
+### Model recommendations
+
+| Use case | Recommended model | Why |
+|----------|------------------|-----|
+| **Daily batch (many jobs)** | `deepseek-chat` | ~$0.14/M tokens — cheapest option |
+| **Quality over cost** | `gpt-4o-mini` | Best instruction following |
+| **Free tier** | `gemini-2.5-flash` | 15 RPM free, good quality |
+| **Fast iteration** | `llama-3.3-70b-versatile` (Groq) | Sub-second inference |
+
+### Reasoning models
+
+PathFinder automatically detects reasoning models (DeepSeek R1, QwQ, o1, o3, o4-mini) and:
+- Disables extended reasoning in the API payload
+- Strips `` tags from the response
+- Falls back to a stricter retry prompt if output is malformed
+
+---
 
 ## Usage
 
@@ -94,106 +368,174 @@ python manage.py migrate
 python manage.py run_all
 ```
 
-This starts the Django dashboard on `http://localhost:8000` and runs the fetch-match-apply cycle every 60 minutes.
+Starts the Django server on `http://localhost:8000` and runs the fetch-match cycle every 60 minutes.
 
-### Or run components separately
+### Run components separately
 
 ```bash
 # Fetch jobs once (no server)
 python manage.py run_fetcher
 
-# Run scheduler only (fetches every 60 min, no dashboard)
+# Run scheduler only (fetches every N minutes, no dashboard)
 python manage.py run_scheduler
 
 # Run dashboard only (no auto-fetching)
 python manage.py runserver
 ```
 
-## How It Works
+### Frontend commands
 
-```
-fetch_all_jobs()
-    ├── RSS (rssjobs.app) — 3000+ Python/React/Django jobs
-    ├── Technopark (technopark.in) — 130+ Kerala tech jobs
-    └── Cutshort (cutshort.io) — 300+ jobs via __NEXT_DATA__ JSON
+```bash
+cd frontend
 
-match_all_jobs(raw_jobs)
-    ├── Skill matching (60%) — weighted by SKILL_WEIGHTS
-    ├── Project matching (20%) — tech stack overlap
-    ├── Experience matching (15%) — within min/max range
-    ├── Title matching (5%) — target role keywords
-    └── Filters: location, salary, role rejection, skill gap
-
-apply_to_job(matched_jobs)
-    ├── Extract company email (Technopark detail pages, Google "company + careers")
-    ├── Generate JD-aware cover letter
-    └── Send via Gmail SMTP (or save as "web_apply" if no email found)
+npm run dev       # Start Vite dev server (hot reload)
+npm run build     # Build for production
+npm run lint      # Run Oxlint
+npm run preview   # Preview production build
 ```
 
-## Dashboard Pages
+### How It Works
 
-| Page | URL | Description |
-|------|-----|-------------|
-| Overview | `/` | Stats cards, jobs-over-time chart, top skills chart |
-| Jobs | `/jobs/` | All matched jobs with search, filters, pagination |
-| Job Detail | `/jobs/{uid}/` | Full breakdown: match score, skill weights, cover letter |
-| Applications | `/applications/` | Sent applications with status tracking |
-| Web Apply | `/web-apply/` | Jobs with apply links (no email found) |
-| Missing Emails | `/missing-emails/` | Jobs needing manual application |
-| Skill Stats | `/skills/` | Skill frequency across all jobs |
-| Company Stats | `/companies/` | Company job counts |
-| Location Stats | `/locations/` | Job distribution by location |
-| Profile | `/profile/` | Edit your profile, skills, projects |
+```
+Fetch (RSS / Technopark / Cutshort)
+  ↓
+RawJob (Data Lake — deduplicated by source + uid)
+  ↓
+Matcher (weighted scoring: skills 60%, projects 20%, experience 15%, title 5%)
+  ↓
+Job (Data Warehouse — matched jobs with scores)
+  ↓
+JobEvent (CDC — lifecycle events for every state change)
+  ↓
+DailyStats (Data Mart — aggregated daily metrics)
+
+Apply Queue → User clicks "Send" → Cover Letter (AI or template) → Gmail SMTP → Application
+```
+
+---
+
+## API Reference
+
+All endpoints are under `/api/v1/`:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/jobs/` | GET | List jobs (paginated, filterable by status/location/salary/search) |
+| `/api/v1/jobs/<id>/` | GET | Job detail with match breakdown, skill gaps, cover letter |
+| `/api/v1/jobs/<id>/apply/` | POST | Apply to a single job |
+| `/api/v1/jobs/<id>/generate-cover-letter/` | POST | Generate AI cover letter |
+| `/api/v1/applications/` | GET | List all applications |
+| `/api/v1/apply-queue/` | GET | Jobs ready to apply (have email, not yet applied) |
+| `/api/v1/apply-queue/batch/` | POST | Batch apply to selected jobs |
+| `/api/v1/apply-queue/progress/` | GET | Batch apply progress |
+| `/api/v1/stats/overview/` | GET | Dashboard overview stats |
+| `/api/v1/stats/skills/` | GET | Skill frequency across jobs |
+| `/api/v1/stats/companies/` | GET | Company job counts |
+| `/api/v1/stats/locations/` | GET | Location distribution |
+| `/api/v1/profile/` | GET/PUT | User profile |
+| `/api/v1/profile/resume/` | GET/PUT | Resume upload |
+| `/api/v1/profile/security/` | GET/PUT | Email/password settings |
+| `/api/v1/profile/ai/` | GET/PUT | AI/LLM configuration |
+| `/api/v1/web-apply/` | GET | Jobs with apply links (no email found) |
+| `/api/v1/missing-emails/` | GET | Jobs missing company emails |
+| `/api/v1/fetcher/run/` | POST | Trigger a fetch cycle |
+| `/api/v1/fetcher/status/` | GET | Current fetcher status |
+
+**WebSocket:**
+| Endpoint | Description |
+|----------|-------------|
+| `ws/fetcher/progress/` | Real-time fetcher progress updates |
+
+---
 
 ## Project Structure
 
 ```
-pathfinder/
-├── config/
-│   ├── __init__.py           # Loads profile.json override, re-exports all
-│   ├── settings.py           # Thresholds, paths, credentials
-│   ├── profile.py            # Your personal profile (gitignored)
-│   ├── profile.example.py    # Template for profile.py (committed)
-│   ├── queries.py            # Search queries for each source
-│   └── constants.py          # Role keywords, recruiter keywords, etc.
-├── core/
-│   ├── fetcher.py            # Combines all sources, deduplicates
-│   ├── matcher.py            # Scoring + filtering engine
-│   ├── applicant.py          # Cover letter gen + Gmail SMTP
-│   ├── tracker.py            # Save jobs/applications to DB
-│   ├── email_extractor.py    # Find company emails
-│   ├── technopark_fetcher.py # Technopark API scraper
-│   ├── cutshort_fetcher.py   # Cutshort JSON parser
-│   ├── notifier.py           # Daily email summary
-│   ├── profile_manager.py    # Load/save profile.json
-│   └── utils.py              # Shared helpers
-├── dashboard/
-│   ├── models.py             # Job, Application, SkillLog, DailyStats
-│   ├── views.py              # All dashboard views
-│   ├── urls.py               # URL routing
-│   └── templates/            # 10 HTML templates
-├── job_portal/               # Django project settings
-├── static/style.css          # Dark theme CSS
-├── resume/                   # Your resume PDFs (gitignored)
-├── .env                      # Secrets (gitignored)
-├── pyproject.toml            # Dependencies
-└── manage.py
+PathFinder/
+├── apps/                       # Django applications
+│   ├── core/                   # Shared infrastructure (pagination)
+│   ├── dashboard/              # Legacy template views (still functional)
+│   └── jobs/                   # Main app — models, API, business logic
+│       ├── models/             # Job, Application, SkillLog, DailyStats, RawJob, JobEvent, CredStore, AIConfig
+│       ├── views/              # 15 view modules (DRF API views)
+│       ├── urls/               # API URL patterns
+│       ├── serializers/        # DRF serializers
+│       ├── fetchers/           # Technopark, Cutshort scrapers
+│       ├── management/commands/ # run_all, run_fetcher, run_scheduler
+│       ├── matcher.py          # Weighted scoring engine
+│       ├── applicant.py        # Cover letter gen + Gmail SMTP
+│       ├── llm_client.py       # OpenAI-compatible LLM client
+│       ├── services.py         # CRUD, enrichment, salary extraction
+│       └── consumers.py        # WebSocket consumer
+├── config/                     # Django project settings
+│   ├── settings/               # base.py, dev.py, prod.py, test.py
+│   ├── queries.py              # Search queries per source
+│   ├── constants.py            # Role rejection keywords, filters
+│   ├── profile.example.py      # Template profile
+│   ├── urls.py                 # Root URL configuration
+│   ├── asgi.py                 # ASGI application
+│   └── wsgi.py                 # WSGI application
+├── common/                     # Shared utilities
+│   └── utils.py                # Email detection, UID generation, HTML cleaning
+├── frontend/                   # React SPA
+│   ├── src/
+│   │   ├── pages/              # 11 page components (Overview, Jobs, JobDetail, etc.)
+│   │   ├── components/         # Reusable UI components
+│   │   ├── lib/                # API client, utilities
+│   │   ├── types/              # TypeScript type definitions
+│   │   ├── App.tsx             # Router + layout
+│   │   └── style.css           # Flat Design 2.0 theme
+│   ├── public/                 # Static assets (favicon, icons)
+│   ├── package.json            # Frontend dependencies
+│   ├── vite.config.ts          # Vite config (proxy to Django)
+│   └── tsconfig.json           # TypeScript config
+├── tests/                      # Test suite
+├── static/                     # Built frontend output (from Vite)
+├── media/                      # User uploads (resumes, etc.)
+│   └── resumes/                # Uploaded resume PDFs (auto-created)
+├── .env.example                # Environment template
+├── pyproject.toml              # Python project config
+├── manage.py                   # Django management
+├── CONTRIBUTING.md             # Contribution guidelines
+├── LICENSE                     # MIT License
+└── README.md                   # This file
 ```
 
-## Customization
+---
 
-### Change match thresholds
+## Dashboard Pages
 
-Edit `config/settings.py`:
+| Page | Route | Description |
+|------|-------|-------------|
+| Overview | `/` | Stats cards, jobs-over-time chart, top skills chart |
+| Jobs | `/jobs` | All matched jobs with search, filters, pagination |
+| Job Detail | `/jobs/:id` | Full breakdown: match score, skill gaps, AI cover letter |
+| Applications | `/applications` | Sent applications with status tracking |
+| Apply Queue | `/apply-queue` | Jobs ready to apply (with email), batch apply |
+| Web Apply | `/web-apply` | Jobs with apply links (no email found) |
+| Missing Emails | `/missing-emails` | Jobs needing manual application |
+| Skill Stats | `/stats/skills` | Skill frequency across all jobs |
+| Company Stats | `/stats/companies` | Company job counts |
+| Location Stats | `/stats/locations` | Job distribution by location |
+| Profile | `/profile` | Edit profile, resume, security, AI settings |
+
+---
+
+## Configuration
+
+### Match thresholds
+
+Edit `config/settings/base.py`:
 
 ```python
-MATCH_THRESHOLD_TRACK = 50    # Minimum % to track a job
-MATCH_THRESHOLD_APPLY = 65    # Minimum % to auto-apply
-MIN_SALARY = 18000            # Minimum salary filter
-MAX_SKILL_GAP_PCT = 40        # Skip jobs needing >40% unknown skills
+MATCH_THRESHOLD_TRACK = 50      # Minimum % to track a job
+MATCH_THRESHOLD_APPLY = 65      # Minimum % to include in apply queue
+MIN_SALARY = 18000              # Minimum salary filter
+MAX_SKILL_GAP_PCT = 40          # Skip jobs needing >40% unknown skills
+MAX_SALARY_GAP_PCT = 50         # Skip if salary gap exceeds 50%
 ```
 
-### Add search queries
+### Search queries
 
 Edit `config/queries.py`:
 
@@ -201,11 +543,12 @@ Edit `config/queries.py`:
 SEARCH_QUERIES = [
     "python developer",
     "django developer",
+    "python full stack developer",
     # add more...
 ]
 ```
 
-### Change role rejection keywords
+### Role rejection keywords
 
 Edit `config/constants.py`:
 
@@ -216,28 +559,88 @@ REJECT_ROLE_KEYWORDS = [
 ]
 ```
 
+---
+
 ## Security
 
-- `.env` — never committed (gitignored)
-- `config/profile.py` — never committed (gitignored)
-- `profile.json` — never committed (gitignored)
-- `resume/*.pdf` — never committed (gitignored)
-- `db.sqlite3` — never committed (gitignored)
-- Django CSRF, X-Frame-Options, Content-Type nosniff, HttpOnly cookies all enabled
-- No raw SQL, no eval/exec — uses Django ORM throughout
+- `.env`, `config/profile.py`, `profile.json`, `media/`, `db.sqlite3` — all gitignored
+- Credentials stored with **Fernet encryption** (cryptography library)
+- Django CSRF, X-Frame-Options, Content-Type nosniff, HttpOnly cookies enabled
+- No raw SQL, no `eval`/`exec` — Django ORM throughout
+- Production settings: HSTS, SSL redirect, secure cookies, proxy headers
+
+---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## Contributors
+
+Thanks to everyone who has contributed to PathFinder!
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/nkswalih">
+        <img src="https://github.com/nkswalih.png" width="100" style="border-radius:50%" alt="Mohammed Swalih N K" />
+        <br />
+        <sub><b>Mohammed Swalih N K</b></sub>
+      </a>
+      <br />
+      <sub>Maintainer & Creator</sub>
+      <br />
+      <sub>95 commits</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/dennisjoseph2025">
+        <img src="https://github.com/dennisjoseph2025.png" width="100" style="border-radius:50%" alt="Dennis Joseph" />
+        <br />
+        <sub><b>Dennis Joseph</b></sub>
+      </a>
+      <br />
+      <sub>Original Author</sub>
+      <br />
+      <sub>3 commits</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+## Legal & Educational Disclaimer
+
+This project is provided **as-is** for **educational and personal use** purposes.
+
+- **No warranty.** This software is provided without warranty of any kind, express or implied. The authors and contributors are not responsible for any damages, data loss, or legal consequences arising from the use of this software.
+- **User responsibility.** You are solely responsible for how you use this tool. By using PathFinder, you acknowledge that:
+  - Automated job applications may violate the Terms of Service of certain job platforms. **Use at your own risk** and always respect platform-specific rules.
+  - Sending automated emails via Gmail is subject to [Google's automation policies](https://support.google.com/mail/answer/6579). Excessive sending may result in account suspension.
+  - You must comply with all applicable laws and regulations, including data protection laws (GDPR, CCPA, etc.) when handling personal or third-party data.
+- **AI-generated content.** Cover letters generated by LLMs may contain inaccuracies. Always review and edit before sending. The hallucination validation layer reduces but does not eliminate this risk.
+- **No affiliation.** This project is not affiliated with, endorsed by, or connected to any job platform (Technopark, Cutshort, etc.), email provider (Google/Gmail), or AI service (OpenAI, Groq, etc.) referenced in this documentation.
+- **Educational purpose.** This project demonstrates a full-stack architecture combining Django REST Framework, React, WebSockets, and LLM integration. It is intended as a learning resource and personal productivity tool, not a commercial service.
+
+---
 
 ## License
 
 MIT License — Copyright (c) 2025 Dennis Joseph
 
-See [LICENSE](LICENSE) for full terms. A mention of the original author is required if you use this project.
+See [LICENSE](LICENSE) for full terms. If you use or distribute this software, you must mention the original author.
 
-## Author
+---
 
-**Dennis Joseph** — Python Full-Stack Developer
-- GitHub: [@dennisjoseph2025](https://github.com/dennisjoseph2025)
-- LinkedIn: [dennisjoseph2025](https://www.linkedin.com/in/dennisjoseph2025)
+<p align="center">
+  Built with Django + React + AI
+  <br />
+  <sub>Star this repo if you find it useful!</sub>
+</p>
