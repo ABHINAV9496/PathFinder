@@ -25,6 +25,7 @@ dependencies = [
     "channels>=4.3.2",
     "daphne>=4.2.2",
     "cryptography>=49.0.0",
+    "jobdrop>=0.1.0",
 ]
 
 [dependency-groups]
