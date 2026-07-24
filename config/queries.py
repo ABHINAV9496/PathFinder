@@ -28,3 +28,27 @@ CUTSHORT_SEARCH_URLS = [
     "https://cutshort.io/jobs/python-jobs-in-pune",
     "https://cutshort.io/jobs/python-jobs-in-kochi",
 ]
+
+JOBDROP_QUERIES = [
+    {"search_term": "python developer", "location": "India"},
+    {"search_term": "django developer", "location": "India"},
+    {"search_term": "python developer", "location": "Remote"},
+    {"search_term": "python full stack", "location": "Remote"},
+]
+
+JOBDROP_SOURCES = [
+    "google",
+    "zip_recruiter",
+    "wellfound",
+    "adzuna",
+    "jooble",
+    "findwork",
+    "the_muse",
+    "greenhouse",
+    "lever",
+    "workday",
+    "ashby",
+    "remoteok",
+    "weworkremotely",
+    "naukri",
+]

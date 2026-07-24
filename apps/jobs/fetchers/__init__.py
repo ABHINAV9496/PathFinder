@@ -1,14 +1,16 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 from bs4 import BeautifulSoup
 
-from config.settings import FEED_BASE_URL
-from config.queries import SEARCH_QUERIES
-from common.utils import make_uid
-from apps.jobs.fetchers.technopark import fetch_technopark_jobs
 from apps.jobs.fetchers.cutshort import fetch_cutshort_jobs
+from apps.jobs.fetchers.jobdrop_fetcher import fetch_jobdrop_jobs
+from apps.jobs.fetchers.technopark import fetch_technopark_jobs
 from apps.jobs.services import _extract_salary_from_text
+from common.utils import make_uid
+from config.queries import SEARCH_QUERIES
+from config.settings import FEED_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -112,87 +114,101 @@ def _ensure_feed_exists(client: httpx.Client, query: dict):
         logger.debug(f"POST feed creation skipped for {keywords} in {location}: {e}")
 
 
-def fetch_rss_jobs() -> list[dict]:
-    all_jobs = []
-    seen_uids = set()
+def _fetch_single_rss_query(query: dict) -> list[dict]:
+    """Fetch a single RSS query. Returns list of job dicts."""
+    keywords = query["keywords"]
+    location = query["location"]
+    jobs = []
 
     client = httpx.Client(
         http2=True,
-        timeout=30,
+        timeout=20,
         follow_redirects=True,
         headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
             "Accept": "*/*",
             "Accept-Language": "en-US,en;q=0.5",
         },
     )
 
-    for query in SEARCH_QUERIES:
-        keywords = query["keywords"]
-        location = query["location"]
-        logger.info(f"RSS: Fetching {keywords} in {location}")
-
+    try:
         _ensure_feed_exists(client, query)
+        resp = client.get(
+            FEED_BASE_URL,
+            params={"keywords": keywords, "location": location},
+        )
+        resp.raise_for_status()
+        jobs = _parse_rss_xml(resp.text, query)
+        logger.info(f"RSS: {keywords} in {location} → {len(jobs)} jobs")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning(f"RSS: Feed not found (creating): {keywords} in {location}")
+            _ensure_feed_exists(client, query)
+        else:
+            logger.error(f"RSS: HTTP {e.response.status_code} for {keywords} in {location}")
+    except Exception as e:
+        logger.error(f"RSS: Failed {keywords} in {location}: {e}")
+    finally:
+        client.close()
 
-        try:
-            resp = client.get(
-                FEED_BASE_URL,
-                params={"keywords": keywords, "location": location},
-            )
-            resp.raise_for_status()
+    return jobs
 
-            jobs = _parse_rss_xml(resp.text, query)
 
-            new_count = 0
-            for job in jobs:
-                if job["uid"] not in seen_uids:
-                    seen_uids.add(job["uid"])
-                    all_jobs.append(job)
-                    new_count += 1
+def fetch_rss_jobs() -> list[dict]:
+    all_jobs = []
+    seen_uids = set()
 
-            logger.info(f"  Found {len(jobs)} jobs ({new_count} new)")
+    with ThreadPoolExecutor(max_workers=min(len(SEARCH_QUERIES), 6)) as pool:
+        futures = {pool.submit(_fetch_single_rss_query, q): q for q in SEARCH_QUERIES}
+        for future in as_completed(futures):
+            try:
+                for job in future.result():
+                    if job["uid"] not in seen_uids:
+                        seen_uids.add(job["uid"])
+                        all_jobs.append(job)
+            except Exception as e:
+                logger.error(f"RSS query failed: {e}")
 
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                logger.warning(f"  Feed not found (creating): {keywords} in {location}")
-                _ensure_feed_exists(client, query)
-            else:
-                logger.error(f"  HTTP {e.response.status_code} for {keywords} in {location}")
-        except Exception as e:
-            logger.error(f"  Failed: {e}")
-
-    client.close()
     logger.info(f"RSS total: {len(all_jobs)} unique jobs")
     return all_jobs
+
+
+def _safe_fetch(name: str, func) -> list[dict]:
+    """Run a fetcher, return jobs or empty list on error."""
+    try:
+        return func()
+    except Exception as e:
+        logger.error(f"{name} scraper failed: {e}")
+        return []
 
 
 def fetch_all_jobs() -> list[dict]:
     all_jobs = []
     seen_uids = set()
 
-    rss_jobs = fetch_rss_jobs()
-    for job in rss_jobs:
-        if job["uid"] not in seen_uids:
-            seen_uids.add(job["uid"])
-            all_jobs.append(job)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            pool.submit(_safe_fetch, "RSS", fetch_rss_jobs): "rss",
+            pool.submit(_safe_fetch, "Technopark", fetch_technopark_jobs): "technopark",
+            pool.submit(_safe_fetch, "Cutshort", fetch_cutshort_jobs): "cutshort",
+            pool.submit(_safe_fetch, "Jobdrop", fetch_jobdrop_jobs): "jobdrop",
+        }
 
-    try:
-        technopark_jobs = fetch_technopark_jobs()
-        for job in technopark_jobs:
-            if job["uid"] not in seen_uids:
-                seen_uids.add(job["uid"])
-                all_jobs.append(job)
-    except Exception as e:
-        logger.error(f"Technopark scraper failed: {e}")
-
-    try:
-        cutshort_jobs = fetch_cutshort_jobs()
-        for job in cutshort_jobs:
-            if job["uid"] not in seen_uids:
-                seen_uids.add(job["uid"])
-                all_jobs.append(job)
-    except Exception as e:
-        logger.error(f"Cutshort scraper failed: {e}")
+        for future in as_completed(futures):
+            source = futures[future]
+            try:
+                jobs = future.result()
+                for job in jobs:
+                    if job["uid"] not in seen_uids:
+                        seen_uids.add(job["uid"])
+                        all_jobs.append(job)
+                logger.info(f"  {source}: contributed {len(jobs)} jobs")
+            except Exception as e:
+                logger.error(f"  {source} failed: {e}")
 
     logger.info(f"Total unique jobs from all sources: {len(all_jobs)}")
     return all_jobs
