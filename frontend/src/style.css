@@ -4732,6 +4732,22 @@ textarea.form-control {
     gap: 6px;
 }
 
+.jd-btn-cv {
+    background: var(--purple);
+    color: #fff;
+    border-color: var(--purple);
+}
+
+.jd-btn-cv:hover {
+    background: #6d28d9;
+    border-color: #6d28d9;
+}
+
+.jd-btn-cv.loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 /* ── Alert ────────────────────────────────────────────────────────── */
 .jd-alert {
     display: flex;
