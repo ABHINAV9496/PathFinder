@@ -250,7 +250,7 @@ def _signature() -> str:
         lines.append(phone)
     links = []
     if portfolio:
-        links.append(portfolio)
+        links.append(f"Portfolio: {portfolio}")
     if github:
         links.append(f"GitHub: {github}")
     if linkedin:
