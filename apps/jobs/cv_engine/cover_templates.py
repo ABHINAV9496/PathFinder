@@ -241,19 +241,13 @@ _TEMPLATE_MAP = {
 def _signature() -> str:
     name = PROFILE.get("name", "")
     phone = PROFILE.get("phone", "")
-    email = PROFILE.get("email", "")
     portfolio = PROFILE.get("portfolio", "")
     github = PROFILE.get("github", "")
     linkedin = PROFILE.get("linkedin", "")
 
     lines = [f"Regards,\n{name}"]
-    parts = []
     if phone:
-        parts.append(phone)
-    if email:
-        parts.append(email)
-    if parts:
-        lines.append(" | ".join(parts))
+        lines.append(phone)
     links = []
     if portfolio:
         links.append(portfolio)
