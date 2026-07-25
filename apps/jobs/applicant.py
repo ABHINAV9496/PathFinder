@@ -230,9 +230,9 @@ def send_application(job: dict, cover_letter: str, email_user: str = None, email
                 "matched_skills": getattr(job_model, "matched_skills", None) or [],
             }
             custom_cv_bytes, _ = render_cv_pdf(job_dict_for_cv)
-            logger.info(f"Custom CV generated for job {job_model.id}")
+            logger.info(f"Custom CV generated for job {job_model.id} ({len(custom_cv_bytes)} bytes)")
         except Exception as e:
-            logger.warning(f"Custom CV generation failed for job {getattr(job_model, 'id', '?')}: {e}")
+            logger.exception(f"Custom CV generation failed for job {getattr(job_model, 'id', '?')}: {e}")
 
     if custom_cv_bytes:
         attachment = MIMEApplication(custom_cv_bytes, _subtype="pdf")
@@ -273,7 +273,14 @@ def send_application(job: dict, cover_letter: str, email_user: str = None, email
 
 
 def apply_to_job(job: dict, email_user: str = None, email_pass: str = None, resume_path: str = None, job_model=None) -> dict:
-    cover_letter = generate_cover_letter(job)
+    try:
+        from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
+        cover_letter, template_used = generate_cover_letter_template(job)
+        logger.info(f"Template cover letter ({template_used}) generated for {job.get('company')}")
+    except Exception as e:
+        logger.warning(f"Template cover letter failed, falling back to old generator: {e}")
+        cover_letter = generate_cover_letter(job)
+
     success, message = send_application(job, cover_letter, email_user=email_user, email_pass=email_pass, resume_path=resume_path, job_model=job_model)
 
     description = job.get("description", "") + " " + job.get("full_text", "")

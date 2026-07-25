@@ -265,13 +265,12 @@ def save_application(job: Job, result: dict) -> Application:
     }
 
     existing = Application.objects.filter(job=job).first()
-    existing_letter = existing.cover_letter_text if existing else ""
 
     app, created = Application.objects.update_or_create(
         job=job,
         defaults={
             "email_subject": result.get("email_subject", ""),
-            "cover_letter_text": existing_letter or result.get("cover_letter", ""),
+            "cover_letter_text": result.get("cover_letter", "") or (existing.cover_letter_text if existing else ""),
             "status": "sent" if result.get("success") else "failed",
             "error_message": "" if result.get("success") else result.get("message", ""),
             "skills_highlighted": result.get("skills_highlighted", []),
