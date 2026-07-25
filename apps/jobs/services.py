@@ -3,6 +3,7 @@ import re
 import logging
 import time
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 from django.db.models import Count
@@ -179,6 +180,76 @@ def save_job(job_data: dict) -> Job:
     return job
 
 
+def bulk_save_jobs(jobs_list: list[dict]) -> None:
+    """Batch-save jobs with fewer DB round-trips."""
+    if not jobs_list:
+        return
+
+    uids = [j["uid"] for j in jobs_list]
+    existing_map = {
+        j.uid: j for j in Job.objects.filter(uid__in=uids)
+    }
+
+    to_create = []
+    to_update = []
+
+    for job_data in jobs_list:
+        salary = job_data.get("salary", 0)
+        salary_display = job_data.get("salary_display", "")
+
+        if not salary:
+            search_text = f"{job_data.get('full_text', '')} {job_data.get('description', '')}"
+            salary, salary_display = _extract_salary_from_text(search_text)
+
+        if salary and not salary_display:
+            salary_display = _format_salary(salary)
+
+        description = job_data.get("description", "")
+        if description and "<" in description:
+            description = html_to_markdown(description)
+
+        defaults = {
+            "title": job_data.get("title", ""),
+            "company": job_data.get("company", ""),
+            "location": job_data.get("location", ""),
+            "description": description,
+            "source": job_data.get("source", ""),
+            "posted_date": job_data.get("posted_date", ""),
+            "match_score": job_data.get("match_score", 0),
+            "status": job_data.get("status", "new"),
+            "apply_email": job_data.get("apply_email", ""),
+            "apply_url": job_data.get("apply_url", ""),
+            "search_query": job_data.get("search_query", ""),
+            "matched_skills": job_data.get("matched_skills", []),
+            "skill_score_breakdown": job_data.get("skill_score_breakdown", {}),
+            "skill_gaps": job_data.get("skill_gaps", []),
+            "filter_reason": job_data.get("filter_reason", ""),
+            "match_explanation": job_data.get("match_explanation", ""),
+            "job_url": job_data.get("job_url", ""),
+            "salary": salary,
+            "salary_display": salary_display,
+        }
+
+        existing = existing_map.get(job_data["uid"])
+        if existing:
+            for k, v in defaults.items():
+                setattr(existing, k, v)
+            to_update.append(existing)
+        else:
+            to_create.append(Job(uid=job_data["uid"], **defaults))
+
+    if to_create:
+        Job.objects.bulk_create(to_create, ignore_conflicts=True, batch_size=200)
+
+    if to_update:
+        Job.objects.bulk_update(to_update, [
+            "title", "company", "location", "description", "source",
+            "posted_date", "match_score", "status", "apply_email", "apply_url",
+            "search_query", "matched_skills", "skill_score_breakdown", "skill_gaps",
+            "filter_reason", "match_explanation", "job_url", "salary", "salary_display",
+        ], batch_size=200)
+
+
 def save_application(job: Job, result: dict) -> Application:
     criteria = {
         "skills_in_jd": result.get("skills_in_jd", []),
@@ -194,13 +265,12 @@ def save_application(job: Job, result: dict) -> Application:
     }
 
     existing = Application.objects.filter(job=job).first()
-    existing_letter = existing.cover_letter_text if existing else ""
 
     app, created = Application.objects.update_or_create(
         job=job,
         defaults={
             "email_subject": result.get("email_subject", ""),
-            "cover_letter_text": existing_letter or result.get("cover_letter", ""),
+            "cover_letter_text": result.get("cover_letter", "") or (existing.cover_letter_text if existing else ""),
             "status": "sent" if result.get("success") else "failed",
             "error_message": "" if result.get("success") else result.get("message", ""),
             "skills_highlighted": result.get("skills_highlighted", []),
@@ -387,30 +457,40 @@ def find_job_salary(job: dict, client: httpx.Client | None = None) -> tuple[int,
     return 0, ""
 
 
-def enrich_jobs_with_salaries(jobs: list[dict], batch_size: int = 5) -> list[dict]:
+def _fetch_salary_for_job(job: dict) -> tuple[int, str]:
     client = _get_http_client()
+    try:
+        return find_job_salary(job, client)
+    finally:
+        client.close()
+
+
+def enrich_jobs_with_salaries(jobs: list[dict], batch_size: int = 5) -> list[dict]:
+    candidates = [
+        (i, job) for i, job in enumerate(jobs)
+        if not job.get("salary", 0) and job.get("apply_url")
+    ]
+
+    if not candidates:
+        return jobs
 
     enriched = 0
-    for i, job in enumerate(jobs):
-        if job.get("salary", 0):
-            continue
+    with ThreadPoolExecutor(max_workers=min(len(candidates), 8)) as pool:
+        future_to_idx = {
+            pool.submit(_fetch_salary_for_job, job): i
+            for i, job in candidates
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                salary, salary_display = future.result()
+                if salary:
+                    jobs[idx]["salary"] = salary
+                    jobs[idx]["salary_display"] = salary_display
+                    enriched += 1
+            except Exception as e:
+                logger.debug(f"  Salary enrichment failed: {e}")
 
-        url = job.get("apply_url", "")
-        if not url:
-            continue
-
-        logger.info(f"  [{i+1}/{len(jobs)}] Extracting salary for {job.get('company', '')}...")
-
-        salary, salary_display = find_job_salary(job, client)
-        if salary:
-            job["salary"] = salary
-            job["salary_display"] = salary_display
-            enriched += 1
-
-        if (i + 1) % batch_size == 0:
-            time.sleep(1)
-
-    client.close()
     logger.info(f"Enriched {enriched}/{len(jobs)} jobs with salary from detail pages")
     return jobs
 
@@ -472,7 +552,7 @@ def find_job_email(job: dict, client: httpx.Client | None = None) -> str:
     return ""
 
 
-def enrich_jobs_with_emails(jobs: list[dict], batch_size: int = 5) -> list[dict]:
+def _fetch_email_for_job(job: dict) -> str:
     client = httpx.Client(
         http2=True, timeout=15, follow_redirects=True,
         headers={
@@ -480,8 +560,14 @@ def enrich_jobs_with_emails(jobs: list[dict], batch_size: int = 5) -> list[dict]
             "Accept": "text/html,application/xhtml+xml",
         },
     )
+    try:
+        return find_job_email(job, client)
+    finally:
+        client.close()
 
-    enriched = 0
+
+def enrich_jobs_with_emails(jobs: list[dict], batch_size: int = 5) -> list[dict]:
+    candidates = []
     for i, job in enumerate(jobs):
         if job.get("apply_email"):
             if not is_company_email(job["apply_email"], job.get("company", "")):
@@ -489,21 +575,27 @@ def enrich_jobs_with_emails(jobs: list[dict], batch_size: int = 5) -> list[dict]
                 job["apply_email"] = ""
             else:
                 continue
+        elif job.get("apply_url"):
+            candidates.append((i, job))
 
-        url = job.get("apply_url", "")
-        if not url:
-            continue
+    if not candidates:
+        return jobs
 
-        logger.info(f"  [{i+1}/{len(jobs)}] Extracting email for {job['company']}...")
+    enriched = 0
+    with ThreadPoolExecutor(max_workers=min(len(candidates), 8)) as pool:
+        future_to_idx = {
+            pool.submit(_fetch_email_for_job, job): i
+            for i, job in candidates
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                email = future.result()
+                if email:
+                    jobs[idx]["apply_email"] = email
+                    enriched += 1
+            except Exception as e:
+                logger.debug(f"  Email enrichment failed: {e}")
 
-        email = find_job_email(job, client)
-        if email:
-            job["apply_email"] = email
-            enriched += 1
-
-        if (i + 1) % batch_size == 0:
-            time.sleep(1)
-
-    client.close()
     logger.info(f"Enriched {enriched}/{len(jobs)} jobs with valid company emails")
     return jobs

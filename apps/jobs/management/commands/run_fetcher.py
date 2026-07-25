@@ -7,7 +7,7 @@ from apps.jobs.fetchers import fetch_all_jobs
 from apps.jobs.matcher import match_all_jobs
 from apps.jobs.services import (
     enrich_jobs_with_emails, is_company_email,
-    save_job, update_daily_stats, job_exists,
+    bulk_save_jobs, update_daily_stats, job_exists,
 )
 from common.utils import safe_console
 from apps.jobs.models import Application
@@ -64,6 +64,11 @@ class Command(BaseCommand):
             )
             self.stdout.write(self.style.SUCCESS(f"  Found {valid_emails} valid company emails"))
 
+        jobs_to_save = [
+            j for j in matched_jobs if j["uid"] not in already_applied_uids
+        ]
+        bulk_save_jobs(jobs_to_save)
+
         matched = 0
         skipped = 0
         has_email = 0
@@ -73,13 +78,8 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            save_job(job_data)
-
             email = job_data.get("apply_email", "")
             if email and not is_company_email(email, job_data.get("company", "")):
-                self.stdout.write(
-                    f"  Rejected {email} for {safe_console(job_data['company'])} (not company domain)"
-                )
                 job_data["apply_email"] = ""
                 email = ""
 

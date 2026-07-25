@@ -136,20 +136,22 @@ def _fetch_single_rss_query(query: dict) -> list[dict]:
     )
 
     try:
-        _ensure_feed_exists(client, query)
         resp = client.get(
             FEED_BASE_URL,
             params={"keywords": keywords, "location": location},
         )
+        if resp.status_code == 404:
+            logger.warning(f"RSS: Feed not found (creating): {keywords} in {location}")
+            _ensure_feed_exists(client, query)
+            resp = client.get(
+                FEED_BASE_URL,
+                params={"keywords": keywords, "location": location},
+            )
         resp.raise_for_status()
         jobs = _parse_rss_xml(resp.text, query)
         logger.info(f"RSS: {keywords} in {location} → {len(jobs)} jobs")
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            logger.warning(f"RSS: Feed not found (creating): {keywords} in {location}")
-            _ensure_feed_exists(client, query)
-        else:
-            logger.error(f"RSS: HTTP {e.response.status_code} for {keywords} in {location}")
+        logger.error(f"RSS: HTTP {e.response.status_code} for {keywords} in {location}")
     except Exception as e:
         logger.error(f"RSS: Failed {keywords} in {location}: {e}")
     finally:
@@ -162,7 +164,7 @@ def fetch_rss_jobs() -> list[dict]:
     all_jobs = []
     seen_uids = set()
 
-    with ThreadPoolExecutor(max_workers=min(len(SEARCH_QUERIES), 6)) as pool:
+    with ThreadPoolExecutor(max_workers=len(SEARCH_QUERIES)) as pool:
         futures = {pool.submit(_fetch_single_rss_query, q): q for q in SEARCH_QUERIES}
         for future in as_completed(futures):
             try:
@@ -190,7 +192,7 @@ def fetch_all_jobs() -> list[dict]:
     all_jobs = []
     seen_uids = set()
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {
             pool.submit(_safe_fetch, "RSS", fetch_rss_jobs): "rss",
             pool.submit(_safe_fetch, "Technopark", fetch_technopark_jobs): "technopark",

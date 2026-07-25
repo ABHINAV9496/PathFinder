@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 from bs4 import BeautifulSoup
@@ -90,10 +90,8 @@ def _parse_job(job: dict) -> dict | None:
     }
 
 
-def fetch_cutshort_jobs() -> list[dict]:
-    all_jobs = []
-    seen_uids = set()
-
+def _fetch_single_url(url: str) -> list[dict]:
+    jobs = []
     client = httpx.Client(
         http2=True,
         timeout=20,
@@ -104,49 +102,61 @@ def fetch_cutshort_jobs() -> list[dict]:
             "Accept-Language": "en-US,en;q=0.5",
         },
     )
+    try:
+        logger.info(f"Fetching Cutshort: {url}")
+        resp = client.get(url)
 
-    for url in CUTSHORT_SEARCH_URLS:
-        try:
-            logger.info(f"Fetching Cutshort: {url}")
-            resp = client.get(url)
+        if resp.status_code != 200:
+            logger.warning(f"  HTTP {resp.status_code}")
+            return jobs
 
-            if resp.status_code != 200:
-                logger.warning(f"  HTTP {resp.status_code}")
-                continue
+        data = _extract_next_data(resp.text)
+        if not data:
+            logger.warning(f"  No __NEXT_DATA__ found")
+            return jobs
 
-            data = _extract_next_data(resp.text)
-            if not data:
-                logger.warning(f"  No __NEXT_DATA__ found")
-                continue
+        queries = (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("dehydratedState", {})
+            .get("queries", [])
+        )
 
-            queries = (
-                data.get("props", {})
-                .get("pageProps", {})
-                .get("dehydratedState", {})
-                .get("queries", [])
-            )
+        for query in queries:
+            state = query.get("state") or {}
+            inner = state.get("data") or {}
+            deeper = inner.get("data") or {}
+            page_data = deeper.get("pageData") or {}
+            jobs_list = page_data.get("jobs") or []
 
-            page_count = 0
-            for query in queries:
-                state = query.get("state") or {}
-                inner = state.get("data") or {}
-                deeper = inner.get("data") or {}
-                page_data = deeper.get("pageData") or {}
-                jobs_list = page_data.get("jobs") or []
+            for job in jobs_list:
+                parsed = _parse_job(job)
+                if parsed:
+                    jobs.append(parsed)
 
-                for job in jobs_list:
-                    parsed = _parse_job(job)
-                    if parsed and parsed["uid"] not in seen_uids:
-                        seen_uids.add(parsed["uid"])
-                        all_jobs.append(parsed)
-                        page_count += 1
+        logger.info(f"  Got {len(jobs)} jobs from {url}")
+    except Exception as e:
+        logger.error(f"  Failed: {e}")
+    finally:
+        client.close()
 
-            logger.info(f"  Got {page_count} jobs from this page")
-            time.sleep(1)
+    return jobs
 
-        except Exception as e:
-            logger.error(f"  Failed: {e}")
 
-    client.close()
+def fetch_cutshort_jobs() -> list[dict]:
+    all_jobs = []
+    seen_uids = set()
+
+    with ThreadPoolExecutor(max_workers=min(len(CUTSHORT_SEARCH_URLS), 6)) as pool:
+        futures = {pool.submit(_fetch_single_url, url): url for url in CUTSHORT_SEARCH_URLS}
+        for future in as_completed(futures):
+            try:
+                for job in future.result():
+                    if job["uid"] not in seen_uids:
+                        seen_uids.add(job["uid"])
+                        all_jobs.append(job)
+            except Exception as e:
+                logger.error(f"  Cutshort URL failed: {e}")
+
     logger.info(f"Cutshort total: {len(all_jobs)} unique jobs")
     return all_jobs

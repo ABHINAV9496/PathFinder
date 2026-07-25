@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import Markdown from "react-markdown";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
@@ -50,6 +50,12 @@ export default function JobDetail() {
   const [activeTab, setActiveTab] = useState<"matched" | "gaps" | "analysis">("matched");
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [generatingCv, setGeneratingCv] = useState(false);
+  const [cvError, setCvError] = useState<string | null>(null);
+  const [generatingTemplateCl, setGeneratingTemplateCl] = useState(false);
+  const [templateClError, setTemplateClError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -83,6 +89,73 @@ export default function JobDetail() {
       setGenerateError(e.message || "Failed to generate cover letter");
     }
     setGenerating(false);
+  }
+
+  const canApply = job && job.apply_email && (!job.application || job.application.status === "failed");
+
+  async function handleApply() {
+    if (!job) return;
+    setApplying(true);
+    setApplyResult(null);
+    try {
+      const res = await api.jobs.apply(job.id) as any;
+      if (res.success) {
+        setApplyResult({ type: "success", msg: res.message || "Application sent!" });
+        setJob((prev) => prev ? {
+          ...prev,
+          status: "applied",
+          application: prev.application
+            ? { ...prev.application, status: "sent" }
+            : { id: 0, job: prev, sent_at: new Date().toISOString(), status: "sent", email_subject: "", cover_letter_text: "", error_message: "", skills_highlighted: [], skills_in_job_desc: [], skill_match_pct: 0, criteria_data: {}, skill_gaps: [], match_explanation: "" },
+        } : prev);
+      } else {
+        setApplyResult({ type: "error", msg: res.message || "Failed to send application." });
+        if (job.status !== "failed") {
+          setJob((prev) => prev ? { ...prev, status: "failed" } : prev);
+        }
+      }
+    } catch (e: any) {
+      setApplyResult({ type: "error", msg: e.message || "Failed to apply." });
+    }
+    setApplying(false);
+  }
+
+  async function handleGenerateCv() {
+    if (!job) return;
+    setGeneratingCv(true);
+    setCvError(null);
+    try {
+      const blob = await api.jobs.generateCv(job.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `CV_${job.company.replace(/\s+/g, "_")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setCvError(e.message || "Failed to generate CV");
+    }
+    setGeneratingCv(false);
+  }
+
+  async function handleGenerateTemplateCl() {
+    if (!job) return;
+    setGeneratingTemplateCl(true);
+    setTemplateClError(null);
+    try {
+      const res = await api.jobs.generateTemplateCoverLetter(job.id);
+      setJob((prev) => prev ? {
+        ...prev,
+        application: prev.application
+          ? { ...prev.application, cover_letter_text: res.cover_letter }
+          : { id: 0, job: prev, sent_at: "", status: "draft", email_subject: "", cover_letter_text: res.cover_letter, error_message: "", skills_highlighted: [], skills_in_job_desc: [], skill_match_pct: 0, criteria_data: {}, skill_gaps: [], match_explanation: "" },
+      } : prev);
+    } catch (e: any) {
+      setTemplateClError(e.message || "Failed to generate cover letter");
+    }
+    setGeneratingTemplateCl(false);
   }
 
   if (loading) {
@@ -182,6 +255,56 @@ export default function JobDetail() {
           </div>
         </div>
         <div className="jd-actions-top">
+          <button
+            className={"jd-btn jd-btn-cv" + (generatingCv ? " loading" : "")}
+            onClick={handleGenerateCv}
+            disabled={generatingCv}
+          >
+            {generatingCv ? (
+              <>
+                <span className="spinner" /> Generating CV...
+              </>
+            ) : (
+              <>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="12" y1="18" x2="12" y2="12" />
+                  <line x1="9" y1="15" x2="15" y2="15" />
+                </svg>
+                Generate CV
+              </>
+            )}
+          </button>
+          {canApply && (
+            <button
+              className={"jd-btn jd-btn-apply" + (applying ? " loading" : "")}
+              onClick={handleApply}
+              disabled={applying}
+            >
+              {applying ? (
+                <>
+                  <span className="spinner" /> Applying...
+                </>
+              ) : (
+                <>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                  Auto Apply
+                </>
+              )}
+            </button>
+          )}
+          {job.application && job.application.status === "sent" && (
+            <span className="jd-btn jd-btn-applied">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Applied
+            </span>
+          )}
           {job.apply_url && (
             <a href={job.apply_url} target="_blank" rel="noopener noreferrer" className="jd-btn jd-btn-primary">
               Apply Now
@@ -203,12 +326,52 @@ export default function JobDetail() {
         </div>
       </div>
 
+      {cvError && (
+        <div className="jd-alert jd-alert-error">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          {cvError}
+        </div>
+      )}
+
+      {templateClError && (
+        <div className="jd-alert jd-alert-error">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          {templateClError}
+        </div>
+      )}
+
       {job.filter_reason && (
         <div className="jd-alert jd-alert-warn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" />
           </svg>
           Filtered: {job.filter_reason}
+        </div>
+      )}
+
+      {applyResult && (
+        <div className={"jd-alert " + (applyResult.type === "success" ? "jd-alert-success" : "jd-alert-error")}>
+          {applyResult.type === "success" ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+          )}
+          {applyResult.msg}
         </div>
       )}
 
@@ -513,6 +676,28 @@ export default function JobDetail() {
                   </>
                 )}
               </button>
+              <button
+                className="jd-btn jd-btn-accent jd-btn-sm"
+                onClick={handleGenerateTemplateCl}
+                disabled={generatingTemplateCl}
+              >
+                {generatingTemplateCl ? (
+                  <>
+                    <span className="spinner" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                      <polyline points="10 9 9 9 8 9" />
+                    </svg>
+                    Generate Template CL
+                  </>
+                )}
+              </button>
             </div>
             <pre className="jd-cover-text">{app.cover_letter_text}</pre>
           </div>
@@ -524,26 +709,50 @@ export default function JobDetail() {
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
-              <span>No cover letter yet. Generate an AI-tailored one for this position.</span>
+              <span>No cover letter yet. Generate one below.</span>
             </div>
-            <button
-              className="jd-btn jd-btn-primary"
-              onClick={handleGenerateCoverLetter}
-              disabled={generating}
-            >
-              {generating ? (
-                <>
-                  <span className="spinner" /> Generating cover letter...
-                </>
-              ) : (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
-                  Generate Cover Letter
-                </>
-              )}
-            </button>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                className="jd-btn jd-btn-primary"
+                onClick={handleGenerateTemplateCl}
+                disabled={generatingTemplateCl}
+              >
+                {generatingTemplateCl ? (
+                  <>
+                    <span className="spinner" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                      <polyline points="10 9 9 9 8 9" />
+                    </svg>
+                    Generate Cover Letter
+                  </>
+                )}
+              </button>
+              <button
+                className="jd-btn jd-btn-secondary"
+                onClick={handleGenerateCoverLetter}
+                disabled={generating}
+              >
+                {generating ? (
+                  <>
+                    <span className="spinner" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                    Generate with AI
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>

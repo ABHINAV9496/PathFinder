@@ -29,6 +29,24 @@ export const api = {
         return r.json();
       });
     },
+    generateTemplateCoverLetter(id: number): Promise<{ cover_letter: string; template: string }> {
+      return fetch(`${BASE}/jobs/${id}/generate-template-cover-letter/`, { method: "POST" }).then((r) => {
+        if (!r.ok) return r.json().then((d) => { throw new Error(d.detail || d.error || `API error: ${r.status}`); });
+        return r.json();
+      });
+    },
+    generateCv(id: number, template?: string): Promise<Blob> {
+      const body: Record<string, string> = {};
+      if (template) body.template = template;
+      return fetch(`${BASE}/jobs/${id}/generate-cv/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((d) => { throw new Error(d.detail || d.error || `API error: ${r.status}`); });
+        return r.blob();
+      });
+    },
   },
   applications: {
     list(params: Record<string, string> = {}): Promise<PaginatedResponse<Application>> {
