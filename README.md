@@ -601,26 +601,22 @@ Thanks to everyone who has contributed to PathFinder!
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/nkswalih">
-        <img src="https://github.com/nkswalih.png" width="100" style="border-radius:50%" alt="Mohammed Swalih N K" />
-        <br />
-        <sub><b>Mohammed Swalih N K</b></sub>
-      </a>
-      <br />
-      <sub>Maintainer & Creator</sub>
-      <br />
-      <sub>95 commits</sub>
-    </td>
-    <td align="center">
       <a href="https://github.com/dennisjoseph2025">
         <img src="https://github.com/dennisjoseph2025.png" width="100" style="border-radius:50%" alt="Dennis Joseph" />
         <br />
         <sub><b>Dennis Joseph</b></sub>
       </a>
       <br />
-      <sub>Original Author</sub>
+      <sub>Creator & Author</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/nkswalih">
+        <img src="https://github.com/nkswalih.png" width="100" style="border-radius:50%" alt="Mohammed Swalih N K" />
+        <br />
+        <sub><b>Mohammed Swalih N K</b></sub>
+      </a>
       <br />
-      <sub>14 commits</sub>
+      <sub>Contributor</sub>
     </td>
   </tr>
 </table>
