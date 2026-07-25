@@ -197,7 +197,7 @@ LinkedIn: {PROFILE['linkedin']}
     return letter.strip()
 
 
-def send_application(job: dict, cover_letter: str, email_user: str = None, email_pass: str = None, resume_path: str = None, job_model=None) -> tuple[bool, str]:
+def send_application(job: dict, cover_letter: str, email_user: str = None, email_pass: str = None, resume_path: str = None) -> tuple[bool, str]:
     apply_email = job.get("apply_email", "")
     if not apply_email:
         return False, "No email address found for this job"
@@ -214,49 +214,18 @@ def send_application(job: dict, cover_letter: str, email_user: str = None, email
 
     msg.attach(MIMEText(cover_letter, "plain"))
 
-    # Try to generate a custom CV tailored to this job
-    custom_cv_bytes = None
-    if job_model is not None:
-        try:
-            from apps.jobs.cv_engine.renderer import render_cv_pdf
-            job_dict_for_cv = {
-                "id": job_model.id,
-                "company": job_model.company,
-                "title": job_model.title,
-                "location": job_model.location or "",
-                "description": job_model.description or "",
-                "salary_text": getattr(job_model, "salary_text", "") or "",
-                "skills_required": getattr(job_model, "skills_required", None) or [],
-                "matched_skills": getattr(job_model, "matched_skills", None) or [],
-            }
-            custom_cv_bytes, _ = render_cv_pdf(job_dict_for_cv)
-            logger.info(f"Custom CV generated for job {job_model.id} ({len(custom_cv_bytes)} bytes)")
-        except Exception as e:
-            logger.exception(f"Custom CV generation failed for job {getattr(job_model, 'id', '?')}: {e}")
-
-    if custom_cv_bytes:
-        attachment = MIMEApplication(custom_cv_bytes, _subtype="pdf")
-        safe_company = job.get("company", "Company").replace(" ", "_")[:30]
-        attachment.add_header(
-            "Content-Disposition", "attachment",
-            filename=f"{PROFILE['name'].replace(' ', '_')}_CV_{safe_company}.pdf"
-        )
-        msg.attach(attachment)
-        logger.info(f"Custom CV attached for {job.get('title')}")
+    res_path = Path(resume_path) if resume_path else Path(RESUME_PATH)
+    if res_path.exists():
+        with open(res_path, "rb") as f:
+            attachment = MIMEApplication(f.read(), _subtype="pdf")
+            attachment.add_header(
+                "Content-Disposition", "attachment",
+                filename=f"{PROFILE['name'].replace(' ', '_')}_Resume.pdf"
+            )
+            msg.attach(attachment)
+        logger.info(f"Resume attached: {res_path}")
     else:
-        # Fall back to static resume
-        res_path = Path(resume_path) if resume_path else Path(RESUME_PATH)
-        if res_path.exists():
-            with open(res_path, "rb") as f:
-                attachment = MIMEApplication(f.read(), _subtype="pdf")
-                attachment.add_header(
-                    "Content-Disposition", "attachment",
-                    filename=f"{PROFILE['name'].replace(' ', '_')}_Resume.pdf"
-                )
-                msg.attach(attachment)
-            logger.info(f"Resume attached: {res_path}")
-        else:
-            logger.warning(f"Resume not found at {res_path}")
+        logger.warning(f"Resume not found at {res_path}")
 
     try:
         with smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT) as server:
@@ -272,7 +241,7 @@ def send_application(job: dict, cover_letter: str, email_user: str = None, email
         return False, str(e)
 
 
-def apply_to_job(job: dict, email_user: str = None, email_pass: str = None, resume_path: str = None, job_model=None) -> dict:
+def apply_to_job(job: dict, email_user: str = None, email_pass: str = None, resume_path: str = None) -> dict:
     try:
         from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
         cover_letter, template_used = generate_cover_letter_template(job)
@@ -281,7 +250,7 @@ def apply_to_job(job: dict, email_user: str = None, email_pass: str = None, resu
         logger.warning(f"Template cover letter failed, falling back to old generator: {e}")
         cover_letter = generate_cover_letter(job)
 
-    success, message = send_application(job, cover_letter, email_user=email_user, email_pass=email_pass, resume_path=resume_path, job_model=job_model)
+    success, message = send_application(job, cover_letter, email_user=email_user, email_pass=email_pass, resume_path=resume_path)
 
     description = job.get("description", "") + " " + job.get("full_text", "")
     jd_req = _extract_jd_keywords(description)
