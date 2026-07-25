@@ -54,6 +54,8 @@ export default function JobDetail() {
   const [applyResult, setApplyResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [generatingCv, setGeneratingCv] = useState(false);
   const [cvError, setCvError] = useState<string | null>(null);
+  const [generatingTemplateCl, setGeneratingTemplateCl] = useState(false);
+  const [templateClError, setTemplateClError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -136,6 +138,24 @@ export default function JobDetail() {
       setCvError(e.message || "Failed to generate CV");
     }
     setGeneratingCv(false);
+  }
+
+  async function handleGenerateTemplateCl() {
+    if (!job) return;
+    setGeneratingTemplateCl(true);
+    setTemplateClError(null);
+    try {
+      const res = await api.jobs.generateTemplateCoverLetter(job.id);
+      setJob((prev) => prev ? {
+        ...prev,
+        application: prev.application
+          ? { ...prev.application, cover_letter_text: res.cover_letter }
+          : { id: 0, job: prev, sent_at: "", status: "draft", email_subject: "", cover_letter_text: res.cover_letter, error_message: "", skills_highlighted: [], skills_in_job_desc: [], skill_match_pct: 0, criteria_data: {}, skill_gaps: [], match_explanation: "" },
+      } : prev);
+    } catch (e: any) {
+      setTemplateClError(e.message || "Failed to generate cover letter");
+    }
+    setGeneratingTemplateCl(false);
   }
 
   if (loading) {
@@ -314,6 +334,17 @@ export default function JobDetail() {
             <line x1="9" y1="9" x2="15" y2="15" />
           </svg>
           {cvError}
+        </div>
+      )}
+
+      {templateClError && (
+        <div className="jd-alert jd-alert-error">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          {templateClError}
         </div>
       )}
 
@@ -645,6 +676,28 @@ export default function JobDetail() {
                   </>
                 )}
               </button>
+              <button
+                className="jd-btn jd-btn-accent jd-btn-sm"
+                onClick={handleGenerateTemplateCl}
+                disabled={generatingTemplateCl}
+              >
+                {generatingTemplateCl ? (
+                  <>
+                    <span className="spinner" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                      <polyline points="10 9 9 9 8 9" />
+                    </svg>
+                    Generate Template CL
+                  </>
+                )}
+              </button>
             </div>
             <pre className="jd-cover-text">{app.cover_letter_text}</pre>
           </div>
@@ -656,26 +709,50 @@ export default function JobDetail() {
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
-              <span>No cover letter yet. Generate an AI-tailored one for this position.</span>
+              <span>No cover letter yet. Generate one below.</span>
             </div>
-            <button
-              className="jd-btn jd-btn-primary"
-              onClick={handleGenerateCoverLetter}
-              disabled={generating}
-            >
-              {generating ? (
-                <>
-                  <span className="spinner" /> Generating cover letter...
-                </>
-              ) : (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
-                  Generate Cover Letter
-                </>
-              )}
-            </button>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                className="jd-btn jd-btn-primary"
+                onClick={handleGenerateTemplateCl}
+                disabled={generatingTemplateCl}
+              >
+                {generatingTemplateCl ? (
+                  <>
+                    <span className="spinner" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                      <polyline points="10 9 9 9 8 9" />
+                    </svg>
+                    Generate Cover Letter
+                  </>
+                )}
+              </button>
+              <button
+                className="jd-btn jd-btn-secondary"
+                onClick={handleGenerateCoverLetter}
+                disabled={generating}
+              >
+                {generating ? (
+                  <>
+                    <span className="spinner" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                    Generate with AI
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>

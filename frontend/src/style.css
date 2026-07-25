@@ -4702,6 +4702,22 @@ textarea.form-control {
     box-shadow: var(--shadow);
 }
 
+.jd-btn-accent {
+    background: var(--cyan);
+    color: #fff;
+    border-color: var(--cyan);
+}
+
+.jd-btn-accent:hover {
+    background: #0e7490;
+    border-color: #0e7490;
+}
+
+.jd-btn-accent.loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 .jd-btn-apply {
     background: var(--green);
     color: #fff;

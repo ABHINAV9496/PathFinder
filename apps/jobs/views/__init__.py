@@ -10,3 +10,4 @@ from .security import ProfileSecurity
 from .ai_settings import ProfileAI
 from .cover_letter import GenerateCoverLetter
 from .generate_cv import GenerateCV
+from .generate_template_cl import GenerateTemplateCoverLetter
