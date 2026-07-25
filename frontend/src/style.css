@@ -4702,6 +4702,36 @@ textarea.form-control {
     box-shadow: var(--shadow);
 }
 
+.jd-btn-apply {
+    background: var(--green);
+    color: #fff;
+    border-color: var(--green);
+}
+
+.jd-btn-apply:hover {
+    background: #16a34a;
+    border-color: #16a34a;
+}
+
+.jd-btn-apply.loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.jd-btn-applied {
+    background: rgba(22,163,74,.1);
+    color: var(--green);
+    border-color: rgba(22,163,74,.2);
+    cursor: default;
+    padding: 9px 16px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 /* ── Alert ────────────────────────────────────────────────────────── */
 .jd-alert {
     display: flex;
@@ -4724,6 +4754,13 @@ textarea.form-control {
     background: var(--red-bg);
     color: var(--red);
     border-color: rgba(220,38,38,.15);
+    margin-bottom: 16px;
+}
+
+.jd-alert-success {
+    background: rgba(22,163,74,.06);
+    color: var(--green);
+    border-color: rgba(22,163,74,.15);
     margin-bottom: 16px;
 }
 

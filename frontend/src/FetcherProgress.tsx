@@ -41,11 +41,32 @@ export function FetcherProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     aliveRef.current = true;
+    checkExistingRun();
     return () => {
       aliveRef.current = false;
       stopPolling();
     };
   }, []);
+
+  async function checkExistingRun() {
+    try {
+      const data = await api.fetcher.status();
+      if (data.running) {
+        const p: FetcherProgress = {
+          running: true,
+          percent: Number(data.percent) || 0,
+          message: String(data.message || ""),
+          step: String(data.step || ""),
+          details: (data.details as Record<string, number>) || {},
+          elapsed_seconds: data.elapsed_seconds as number | undefined,
+        };
+        setProgress(p);
+        startPolling();
+      }
+    } catch {
+      // server not reachable, no problem
+    }
+  }
 
   function stopPolling() {
     if (pollRef.current) {

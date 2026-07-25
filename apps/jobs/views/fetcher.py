@@ -2,8 +2,6 @@ import threading
 import logging
 import time
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from rest_framework import status
 from rest_framework.decorators import api_view
 
@@ -24,26 +22,6 @@ _fetcher_progress = {
 }
 
 
-def _broadcast_progress():
-    channel_layer = get_channel_layer()
-    payload = {
-        "running": _fetcher_progress["running"],
-        "step": _fetcher_progress["step"],
-        "message": _fetcher_progress["message"],
-        "percent": _fetcher_progress["percent"],
-        "details": _fetcher_progress["details"],
-    }
-    if _fetcher_progress.get("started_at"):
-        now = time.time()
-        payload["elapsed_seconds"] = round(
-            (_fetcher_progress.get("finished_at") or now) - _fetcher_progress["started_at"], 1
-        )
-    async_to_sync(channel_layer.group_send)(
-        "fetcher_progress",
-        {"type": "fetcher.progress.update", "data": payload},
-    )
-
-
 def _update_progress(step: str, message: str, percent: int, details: dict = None):
     _fetcher_progress["step"] = step
     _fetcher_progress["message"] = message
@@ -51,10 +29,6 @@ def _update_progress(step: str, message: str, percent: int, details: dict = None
     if details:
         _fetcher_progress["details"].update(details)
     logger.info(f"[{percent}%] {message}")
-    try:
-        _broadcast_progress()
-    except Exception:
-        logger.debug("WebSocket broadcast failed, channel layer may not be running")
 
 
 def _run_fetcher_background():
@@ -69,7 +43,7 @@ def _run_fetcher_background():
         from apps.jobs.services import (
             enrich_jobs_with_emails, enrich_jobs_with_salaries,
             is_company_email,
-            save_job,
+            bulk_save_jobs,
             update_daily_stats, _extract_salary_from_text,
         )
         from apps.jobs.models import Application, RawJob, JobEvent, Job
@@ -173,38 +147,36 @@ def _run_fetcher_background():
 
         _update_progress("save", "Saving matched jobs...", 85)
 
-        saved = 0
+        jobs_to_save = [j for j in all_jobs if j["uid"] not in already_applied_uids]
+        bulk_save_jobs(jobs_to_save)
 
-        for i, job_data in enumerate(all_jobs):
-            if (i + 1) % 50 == 0:
-                _update_progress("save", f"Saving jobs... ({i + 1}/{len(all_jobs)})", 85,
-                                 {"saved": i + 1, "total": len(all_jobs)})
+        job_map = {j.uid: j for j in Job.objects.filter(uid__in=[j["uid"] for j in jobs_to_save])}
 
+        events_to_create = []
+        for job_data in jobs_to_save:
+            uid = job_data["uid"]
+            job = job_map.get(uid)
+            if not job:
+                continue
             if job_data["status"] == "ignored":
-                job = save_job(job_data)
-                JobEvent.objects.create(
+                events_to_create.append(JobEvent(
                     job=job, event_type="ignored",
                     old_status="", new_status="ignored",
                     match_score=job_data.get("match_score", 0),
-                )
-                continue
-
-            if job_data["uid"] in already_applied_uids:
-                save_job(job_data)
-                continue
-
-            job = save_job(job_data)
-            JobEvent.objects.create(
-                job=job, event_type="matched",
-                old_status="", new_status=job.status,
-                match_score=job_data.get("match_score", 0),
-            )
-
+                ))
+            elif uid not in already_applied_uids:
+                events_to_create.append(JobEvent(
+                    job=job, event_type="matched",
+                    old_status="", new_status=job.status,
+                    match_score=job_data.get("match_score", 0),
+                ))
             email = job_data.get("apply_email", "")
             if email and not is_company_email(email, job_data.get("company", "")):
-                job_data["apply_email"] = ""
                 job.apply_email = ""
                 job.save(update_fields=["apply_email"])
+
+        if events_to_create:
+            JobEvent.objects.bulk_create(events_to_create, batch_size=200)
 
         _update_progress("stats", "Updating dashboard statistics...", 95)
         update_daily_stats()
