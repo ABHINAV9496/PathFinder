@@ -39,11 +39,14 @@ PathFinder is an automated job portal that scrapes Python developer jobs from **
 
 ## Features
 
-- **Multi-source job fetching** — RSS (3000+ jobs), Technopark (130+ jobs), Cutshort (300+ jobs)
+- **Multi-source job fetching** — RSS (3000+ jobs), Technopark (130+ jobs), Cutshort (300+ jobs) with parallel fetching (10/6 workers)
 - **Smart matching engine** — weighted scoring: skills (60%), project relevance (20%), experience (15%), title (5%)
+- **Template cover letters** — market-validated Problem-Solution format with 6 company-type templates (startup, enterprise, tech, fintech, AI, general)
 - **AI cover letters** — provider-agnostic LLM integration (OpenAI, Groq, DeepSeek, Gemini, OpenRouter) with hallucination-proof validation
+- **Auto-apply** — one-click apply from Job Detail page with generated cover letter + uploaded resume
 - **Batch apply** — send applications to multiple jobs with one click via Gmail SMTP
-- **Real-time progress** — WebSocket-powered fetcher progress bar
+- **Parallel enrichment** — email/salary enrichment runs with 8 workers for faster processing
+- **Real-time progress** — fetcher progress bar with resume polling on mount
 - **Profile management** — editable from the dashboard, takes effect on next fetch cycle
 - **Skill gap analysis** — filters out jobs requiring >40% unknown skills
 - **Experience + salary + location filtering** — respects your preferences
@@ -397,7 +400,7 @@ npm run preview   # Preview production build
 ### How It Works
 
 ```
-Fetch (RSS / Technopark / Cutshort)
+Fetch (RSS / Technopark / Cutshort — parallel fetching)
   ↓
 RawJob (Data Lake — deduplicated by source + uid)
   ↓
@@ -409,7 +412,8 @@ JobEvent (CDC — lifecycle events for every state change)
   ↓
 DailyStats (Data Mart — aggregated daily metrics)
 
-Apply Queue → User clicks "Send" → Cover Letter (AI or template) → Gmail SMTP → Application
+Auto-Apply → Template Cover Letter (Problem-Solution format) + Static Resume → Gmail SMTP → Application
+Batch Apply → User selects jobs → Cover Letter (AI or template) → Gmail SMTP → Applications
 ```
 
 ---
@@ -424,6 +428,8 @@ All endpoints are under `/api/v1/`:
 | `/api/v1/jobs/<id>/` | GET | Job detail with match breakdown, skill gaps, cover letter |
 | `/api/v1/jobs/<id>/apply/` | POST | Apply to a single job |
 | `/api/v1/jobs/<id>/generate-cover-letter/` | POST | Generate AI cover letter |
+| `/api/v1/jobs/<id>/generate-cv/` | POST | Generate PDF CV from profile |
+| `/api/v1/jobs/<id>/generate-template-cover-letter/` | POST | Generate template cover letter (Problem-Solution format) |
 | `/api/v1/applications/` | GET | List all applications |
 | `/api/v1/apply-queue/` | GET | Jobs ready to apply (have email, not yet applied) |
 | `/api/v1/apply-queue/batch/` | POST | Batch apply to selected jobs |
@@ -460,12 +466,17 @@ PathFinder/
 │       ├── views/              # 15 view modules (DRF API views)
 │       ├── urls/               # API URL patterns
 │       ├── serializers/        # DRF serializers
-│       ├── fetchers/           # Technopark, Cutshort scrapers
+│       ├── fetchers/           # Technopark, Cutshort scrapers (parallel fetching)
+│       ├── cv_engine/          # Template cover letter engine + CV builder
+│       │   ├── cover_templates.py  # 6 market-validated cover letter templates
+│       │   ├── builder.py      # CV data builder + company classification
+│       │   ├── templates.py    # HTML CV templates
+│       │   └── renderer.py     # xhtml2pdf HTML→PDF renderer
 │       ├── management/commands/ # run_all, run_fetcher, run_scheduler
 │       ├── matcher.py          # Weighted scoring engine
-│       ├── applicant.py        # Cover letter gen + Gmail SMTP
+│       ├── applicant.py        # Cover letter gen + Gmail SMTP + auto-apply
 │       ├── llm_client.py       # OpenAI-compatible LLM client
-│       ├── services.py         # CRUD, enrichment, salary extraction
+│       ├── services.py         # CRUD, parallel enrichment, salary extraction
 │       └── consumers.py        # WebSocket consumer
 ├── config/                     # Django project settings
 │   ├── settings/               # base.py, dev.py, prod.py, test.py
@@ -509,7 +520,7 @@ PathFinder/
 |------|-------|-------------|
 | Overview | `/` | Stats cards, jobs-over-time chart, top skills chart |
 | Jobs | `/jobs` | All matched jobs with search, filters, pagination |
-| Job Detail | `/jobs/:id` | Full breakdown: match score, skill gaps, AI cover letter |
+| Job Detail | `/jobs/:id` | Full breakdown: match score, skill gaps, auto-apply, generate CV, generate template CL |
 | Applications | `/applications` | Sent applications with status tracking |
 | Apply Queue | `/apply-queue` | Jobs ready to apply (with email), batch apply |
 | Web Apply | `/web-apply` | Jobs with apply links (no email found) |
@@ -609,7 +620,7 @@ Thanks to everyone who has contributed to PathFinder!
       <br />
       <sub>Original Author</sub>
       <br />
-      <sub>3 commits</sub>
+      <sub>14 commits</sub>
     </td>
   </tr>
 </table>
