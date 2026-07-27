@@ -8,7 +8,6 @@ from apps.jobs.views import (
     ApplyQueueList, ApplyToJob, BatchApply,
     ProfileResume, ProfileSecurity, ProfileAI,
     GenerateCoverLetter,
-    GenerateCV,
     GenerateTemplateCoverLetter,
 )
 from apps.jobs.views.fetcher import run_fetcher, fetcher_status
@@ -29,7 +28,6 @@ api_urlpatterns = [
     path("jobs/<int:job_id>/apply/", ApplyToJob.as_view(), name="api_apply_to_job"),
     path("jobs/<int:job_id>/generate-cover-letter/", GenerateCoverLetter.as_view(), name="api_generate_cover_letter"),
     path("jobs/<int:job_id>/generate-template-cover-letter/", GenerateTemplateCoverLetter.as_view(), name="api_generate_template_cover_letter"),
-    path("jobs/<int:job_id>/generate-cv/", GenerateCV.as_view(), name="api_generate_cv"),
 
     # Stats
     path("stats/overview/", OverviewStats.as_view(), name="api_overview"),

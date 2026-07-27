@@ -1,6 +1,4 @@
 import pytest
-from django.test import RequestFactory, Client
-from unittest.mock import patch
 
 
 @pytest.mark.django_db

@@ -1,4 +1,3 @@
-from django.http import JsonResponse
 from rest_framework import status
 
 from apps.jobs.models import AIConfig

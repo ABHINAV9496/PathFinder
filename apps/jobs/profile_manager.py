@@ -32,11 +32,3 @@ def save_profile(profile: dict) -> bool:
     except Exception as e:
         logger.error(f"Failed to save profile.json: {e}")
         return False
-
-
-def get_skills_flat(profile: dict) -> list[str]:
-    """Get all skills as a flat list from profile."""
-    skills = []
-    for cat_skills in profile.get("skills", {}).values():
-        skills.extend(cat_skills)
-    return skills

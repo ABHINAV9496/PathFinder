@@ -17,13 +17,10 @@ Thanks for your interest in contributing! Here's how to get started.
 ```bash
 git clone https://github.com/YOUR_USERNAME/pathfinder.git
 cd pathfinder
-uv sync
-copy .env.example .env
-copy config\profile.example.py config\profile.py
-python manage.py migrate
+python setup.py
 ```
 
-Fill in `.env` and `config/profile.py` with your own values.
+This installs all Python and frontend dependencies, creates `.env` and `config/profile.py` from templates, and runs migrations. Then edit `.env` and `config/profile.py` with your own values.
 
 ## Development
 

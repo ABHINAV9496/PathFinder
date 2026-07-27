@@ -1,6 +1,5 @@
 import os
 import pytest
-from django.contrib.auth.models import User
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test")
 
@@ -11,15 +10,6 @@ def _override_settings(settings):
     settings.SECURE_SSL_REDIRECT = False
     settings.CSRF_COOKIE_SECURE = False
     settings.SESSION_COOKIE_SECURE = False
-
-
-@pytest.fixture
-def user(db):
-    return User.objects.create_user(
-        username="testuser",
-        email="test@example.com",
-        password="testpass123",
-    )
 
 
 @pytest.fixture

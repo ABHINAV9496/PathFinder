@@ -76,34 +76,38 @@ PathFinder is an automated job portal that scrapes Python developer jobs from **
 
 ## Quick Start
 
-> **Requirements:** Python 3.10+, Node.js 18+, [uv](https://docs.astral.sh/uv/) (recommended)
+> **Requirements:** Python 3.10+, Node.js 18+ ([uv](https://docs.astral.sh/uv/) auto-installed if missing)
 
 ```bash
 # 1. Clone
 git clone https://github.com/nkswalih/PathFinder.git
 cd PathFinder
 
-# 2. Backend setup
-uv sync
-copy .env.example .env          # Windows
-# cp .env.example .env          # macOS/Linux
+# 2. One-command setup (installs everything)
+python setup.py
 
-# 3. Configure (edit .env — see Full Setup below)
+# 3. Edit your config files (required before first run)
+#    .env                  — set EMAIL_USER, EMAIL_PASS, DJANGO_SECRET_KEY
+#    config/profile.py    — fill in your real profile data
 
-# 4. Database
-python manage.py migrate
-
-# 5. Frontend setup
-cd frontend
-npm install
-cd ..
-
-# 6. Run (development)
+# 4. Run (development)
 python manage.py runserver       # Terminal 1 — Django on :8000
 cd frontend && npm run dev       # Terminal 2 — Vite on :5173
 ```
 
 Open **http://localhost:5173** — the Vite dev server proxies API calls to Django automatically.
+
+### What `setup.py` does
+
+| Step | Action |
+|------|--------|
+| 1 | Checks Python >= 3.10 and Node.js >= 18 |
+| 2 | Installs [uv](https://docs.astral.sh/uv/) if missing |
+| 3 | Installs Python dependencies (`uv sync`) |
+| 4 | Copies `.env.example` → `.env` (skips if exists) |
+| 5 | Copies `config/profile.example.py` → `config/profile.py` (skips if exists) |
+| 6 | Runs database migrations |
+| 7 | Installs frontend dependencies (`npm install`) |
 
 ---
 
@@ -428,7 +432,6 @@ All endpoints are under `/api/v1/`:
 | `/api/v1/jobs/<id>/` | GET | Job detail with match breakdown, skill gaps, cover letter |
 | `/api/v1/jobs/<id>/apply/` | POST | Apply to a single job |
 | `/api/v1/jobs/<id>/generate-cover-letter/` | POST | Generate AI cover letter |
-| `/api/v1/jobs/<id>/generate-cv/` | POST | Generate PDF CV from profile |
 | `/api/v1/jobs/<id>/generate-template-cover-letter/` | POST | Generate template cover letter (Problem-Solution format) |
 | `/api/v1/applications/` | GET | List all applications |
 | `/api/v1/apply-queue/` | GET | Jobs ready to apply (have email, not yet applied) |
@@ -467,11 +470,8 @@ PathFinder/
 │       ├── urls/               # API URL patterns
 │       ├── serializers/        # DRF serializers
 │       ├── fetchers/           # Technopark, Cutshort scrapers (parallel fetching)
-│       ├── cv_engine/          # Template cover letter engine + CV builder
-│       │   ├── cover_templates.py  # 6 market-validated cover letter templates
-│       │   ├── builder.py      # CV data builder + company classification
-│       │   ├── templates.py    # HTML CV templates
-│       │   └── renderer.py     # xhtml2pdf HTML→PDF renderer
+│       ├── cv_engine/          # Cover letter template engine
+│       │   └── cover_templates.py  # 6 market-validated cover letter templates
 │       ├── management/commands/ # run_all, run_fetcher, run_scheduler
 │       ├── matcher.py          # Weighted scoring engine
 │       ├── applicant.py        # Cover letter gen + Gmail SMTP + auto-apply
