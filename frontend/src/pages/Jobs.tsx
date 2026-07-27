@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { api } from "../api/client";
+import { JobCardSkeleton } from "../components/Skeleton";
 import type { Job, PaginatedResponse } from "../types";
 
 const STATUSES = ["all", "new", "matched", "applied", "web_apply", "ignored"];
@@ -191,19 +192,7 @@ export default function Jobs() {
         {loading && (
           <>
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="jb-card skeleton">
-                <div className="jb-card-left">
-                  <div className="skeleton-score" />
-                  <div className="skeleton-lines">
-                    <div className="skeleton-line w60" />
-                    <div className="skeleton-line w40" />
-                  </div>
-                </div>
-                <div className="skeleton-tags">
-                  <div className="skeleton-tag" />
-                  <div className="skeleton-tag" />
-                </div>
-              </div>
+              <JobCardSkeleton key={i} />
             ))}
           </>
         )}

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Chart, registerables } from "chart.js";
 import { api } from "../api/client";
 import { useFetcher } from "../FetcherProgress";
+import { StatCardSkeleton } from "../components/Skeleton";
 import { useTitle } from "../hooks/useTitle";
 
 Chart.register(...registerables);
@@ -183,13 +184,7 @@ export default function Overview() {
         </div>
         <div className="ov-stats">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="ov-stat skeleton">
-              <div className="skeleton-icon" />
-              <div className="skeleton-content">
-                <div className="skeleton-value" />
-                <div className="skeleton-label" />
-              </div>
-            </div>
+            <StatCardSkeleton key={i} />
           ))}
         </div>
       </>

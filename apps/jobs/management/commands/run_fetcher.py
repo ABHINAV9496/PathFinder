@@ -21,8 +21,21 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE("Starting fetch cycle..."))
         start = time.time()
 
-        raw_jobs = fetch_all_jobs()
+        raw_jobs, fetch_stats = fetch_all_jobs()
         self.stdout.write(self.style.SUCCESS(f"Fetched {len(raw_jobs)} raw jobs from all sources"))
+
+        # Report per-source breakdown
+        for src, count in fetch_stats.get("by_source", {}).items():
+            status_icon = "x" if count == 0 and src in fetch_stats.get("failed", []) else "+"
+            self.stdout.write(f"  [{status_icon}] {src}: {count} jobs")
+
+        if fetch_stats.get("failed"):
+            self.stdout.write(self.style.WARNING(
+                f"  Warning: {', '.join(fetch_stats['failed'])} returned no jobs (may be down)"
+            ))
+
+        if fetch_stats.get("dups_removed"):
+            self.stdout.write(f"  {fetch_stats['dups_removed']} cross-source duplicates merged")
 
         new_count = sum(1 for j in raw_jobs if not job_exists(j["uid"]))
         self.stdout.write(f"  {new_count} new jobs (not seen before)")
@@ -102,7 +115,7 @@ class Command(BaseCommand):
         elapsed = round(time.time() - start, 1)
         self.stdout.write(self.style.SUCCESS(
             f"\nCycle complete in {elapsed}s\n"
-            f"  Fetched:     {len(raw_jobs)}\n"
+            f"  Fetched:     {len(raw_jobs)} (from {len(fetch_stats.get('by_source', {}))} sources)\n"
             f"  Matched:     {len(matched_jobs)}\n"
             f"  Has email:   {has_email} (visible in Apply Queue)\n"
             f"  No email:    {no_email}\n"

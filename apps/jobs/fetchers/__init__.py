@@ -8,7 +8,7 @@ from apps.jobs.fetchers.cutshort import fetch_cutshort_jobs
 from apps.jobs.fetchers.jobdrop_fetcher import fetch_jobdrop_jobs
 from apps.jobs.fetchers.technopark import fetch_technopark_jobs
 from apps.jobs.services import _extract_salary_from_text
-from common.utils import make_uid
+from common.utils import make_uid, deduplicate_jobs
 from config.queries import SEARCH_QUERIES
 from config.settings import FEED_BASE_URL
 
@@ -188,9 +188,11 @@ def _safe_fetch(name: str, func) -> list[dict]:
         return []
 
 
-def fetch_all_jobs() -> list[dict]:
+def fetch_all_jobs() -> tuple[list[dict], dict]:
     all_jobs = []
     seen_uids = set()
+    source_stats = {}
+    failed_sources = []
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {
@@ -204,13 +206,34 @@ def fetch_all_jobs() -> list[dict]:
             source = futures[future]
             try:
                 jobs = future.result()
+                source_stats[source] = len(jobs)
+                if not jobs:
+                    failed_sources.append(source)
                 for job in jobs:
                     if job["uid"] not in seen_uids:
                         seen_uids.add(job["uid"])
                         all_jobs.append(job)
                 logger.info(f"  {source}: contributed {len(jobs)} jobs")
             except Exception as e:
+                source_stats[source] = 0
+                failed_sources.append(source)
                 logger.error(f"  {source} failed: {e}")
 
-    logger.info(f"Total unique jobs from all sources: {len(all_jobs)}")
-    return all_jobs
+    before_dedup = len(all_jobs)
+    all_jobs = deduplicate_jobs(all_jobs)
+    dups_removed = before_dedup - len(all_jobs)
+
+    stats = {
+        "by_source": source_stats,
+        "failed": failed_sources,
+        "before_dedup": before_dedup,
+        "dups_removed": dups_removed,
+        "final": len(all_jobs),
+    }
+
+    logger.info(
+        f"Total: {before_dedup} exact-unique, "
+        f"{dups_removed} fuzzy-duplicates removed, "
+        f"{len(all_jobs)} final | by source: {source_stats}"
+    )
+    return all_jobs, stats
