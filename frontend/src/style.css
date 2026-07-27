@@ -4011,6 +4011,98 @@ textarea.form-control {
     50% { opacity: .4; }
 }
 
+/* ── Shared Skeleton Components ──────────────────────────────────── */
+.sk {
+    background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: var(--radius-sm);
+}
+
+.sk-bone {
+    min-height: 14px;
+}
+
+.sk-line {
+    border-radius: 4px;
+}
+
+.sk-circle {
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.sk-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    pointer-events: none;
+}
+
+.sk-job-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.sk-job-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sk-job-lines {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sk-card-lines {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sk-item-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sk-tags {
+    display: flex;
+    gap: 6px;
+}
+
+.sk-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sk-table {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sk-table-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.sk-table-row .sk-bone {
+    flex: 1;
+}
+
 /* ── Empty ───────────────────────────────────────────────────────── */
 .ov-empty {
     text-align: center;

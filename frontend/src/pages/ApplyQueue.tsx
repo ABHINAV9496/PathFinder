@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
+import { ListItemSkeleton } from "../components/Skeleton";
 import type { Job, PaginatedResponse } from "../types";
 
 function MatchRing({ pct }: { pct: number }) {
@@ -184,17 +185,7 @@ export default function ApplyQueue() {
         {loading && (
           <>
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="aq-card aq-card-skeleton">
-                <div className="aq-card-main">
-                  <input type="checkbox" className="aq-checkbox" disabled />
-                  <div className="aq-card-left"><div className="aq-skel-ring" /></div>
-                  <div className="aq-card-body">
-                    <div className="aq-skel-title" />
-                    <div className="aq-skel-meta" />
-                    <div className="aq-skel-tags" />
-                  </div>
-                </div>
-              </div>
+              <ListItemSkeleton key={i} hasAvatar={false} />
             ))}
           </>
         )}

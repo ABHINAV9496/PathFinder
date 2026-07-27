@@ -391,7 +391,7 @@ def _run_fetcher_background():
 
         _fetcher_running = True
 
-        raw_jobs = fetch_all_jobs()
+        raw_jobs, fetch_stats = fetch_all_jobs()
         matched_jobs = match_all_jobs(raw_jobs)
 
         already_applied_uids = set(

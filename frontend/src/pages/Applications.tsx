@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
+import { ListItemSkeleton } from "../components/Skeleton";
 import type { Application, PaginatedResponse } from "../types";
 
 type StatusFilter = "all" | "sent" | "failed";
@@ -194,16 +195,7 @@ export default function Applications() {
         {loading && (
           <>
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="ap-card ap-card-skeleton">
-                <div className="ap-card-main">
-                  <div className="ap-card-left"><div className="ap-skel-ring" /></div>
-                  <div className="ap-card-body">
-                    <div className="ap-skel-title" />
-                    <div className="ap-skel-meta" />
-                    <div className="ap-skel-tags" />
-                  </div>
-                </div>
-              </div>
+              <ListItemSkeleton key={i} />
             ))}
           </>
         )}

@@ -54,11 +54,17 @@ def _run_fetcher_background():
 
         existing_uids = set(Job.objects.values_list("uid", flat=True))
 
-        raw_jobs = fetch_all_jobs()
+        raw_jobs, fetch_stats = fetch_all_jobs()
         batch_id = RawJob.new_batch_id()
 
+        source_breakdown = fetch_stats.get("by_source", {})
+        failed_sources = fetch_stats.get("failed", [])
+        dedup_info = f", {fetch_stats['dups_removed']} duplicates merged" if fetch_stats.get("dups_removed") else ""
+
         _update_progress("filter", f"Filtering {len(raw_jobs)} jobs against existing database...", 40,
-                         {"total_raw": len(raw_jobs), "existing": len(existing_uids)})
+                         {"total_raw": len(raw_jobs), "existing": len(existing_uids),
+                          "sources": source_breakdown, "failed_sources": failed_sources,
+                          "duplicates_removed": fetch_stats.get("dups_removed", 0)})
 
         new_jobs = []
         updated_salary = 0
