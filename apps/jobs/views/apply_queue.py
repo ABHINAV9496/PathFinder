@@ -65,7 +65,7 @@ class ApplyToJob(BaseAPIView):
         email_pass = cred.get_password()
         resume_path = cred.resume_file.path if cred.resume_file else None
 
-        cl_text = existing.cover_letter_text if existing and existing.cover_letter_text else None
+        cl_text = request.data.get("cover_letter_text") or (existing.cover_letter_text if existing and existing.cover_letter_text else None)
         result = do_apply(job_dict, email_user=email_user, email_pass=email_pass, resume_path=resume_path, cover_letter_text=cl_text)
 
         old_status = job.status

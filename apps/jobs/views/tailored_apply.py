@@ -45,8 +45,10 @@ class TailoredApply(BaseAPIView):
             "match_score": job.match_score, "full_text": "",
         }
 
-        from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
-        cover_letter, template_used = generate_cover_letter_template(job_dict, profile)
+        cover_letter = request.data.get("cover_letter_text")
+        if not cover_letter:
+            from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
+            cover_letter, template_used = generate_cover_letter_template(job_dict, profile)
 
         from apps.jobs.applicant import send_application
         email_user = cred.sender_email
