@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 
 from django.http import JsonResponse
-from config.settings import DEBUG
+from config.settings import DEBUG, DASHBOARD_MIN_SCORE_TRACK
 
 logger = logging.getLogger(__name__)
 _fetcher_running = False
@@ -43,7 +43,7 @@ def _run_fetcher_background():
         from apps.jobs.services import (
             enrich_jobs_with_emails, enrich_jobs_with_salaries,
             is_company_email,
-            bulk_save_jobs,
+            bulk_save_jobs, save_web_apply,
             update_daily_stats, _extract_salary_from_text,
         )
         from apps.jobs.models import Application, RawJob, JobEvent, Job
@@ -137,6 +137,27 @@ def _run_fetcher_background():
                              {"candidates": len(email_candidates)})
             enrich_jobs_with_emails(email_candidates)
 
+        # Re-enrich existing matched jobs without emails (top 20 per cycle)
+        from apps.jobs.models import Job as JobModel
+        email_needed = list(
+            JobModel.objects
+            .filter(status="matched", apply_email="")
+            .exclude(apply_url__isnull=True).exclude(apply_url="")
+            .order_by("-match_score")
+            .values("uid", "title", "company", "location",
+                    "description", "apply_url", "match_score", "matched_skills")[:20]
+        )
+        if email_needed:
+            _update_progress("email", f"Re-enriching {len(email_needed)} existing matched jobs...", 68,
+                             {"re_enrich": len(email_needed)})
+            job_dicts = [{**j, "matched_skills": j.get("matched_skills") or [],
+                          "apply_email": "", "full_text": ""} for j in email_needed]
+            enrich_jobs_with_emails(job_dicts)
+            for jd in job_dicts:
+                email = jd.get("apply_email", "")
+                if email and is_company_email(email, jd.get("company", "")):
+                    JobModel.objects.filter(uid=jd["uid"]).update(apply_email=email)
+
         salary_candidates = [
             j for j in all_jobs
             if j["status"] != "ignored"
@@ -180,6 +201,9 @@ def _run_fetcher_background():
             if email and not is_company_email(email, job_data.get("company", "")):
                 job.apply_email = ""
                 job.save(update_fields=["apply_email"])
+                email = ""
+            if not email and job_data.get("match_score", 0) >= DASHBOARD_MIN_SCORE_TRACK:
+                save_web_apply(job, job_data)
 
         if events_to_create:
             JobEvent.objects.bulk_create(events_to_create, batch_size=200)

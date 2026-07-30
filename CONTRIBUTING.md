@@ -1,4 +1,4 @@
-# Contributing to PathFinder
+# Contributing to JobbLoot
 
 Thanks for your interest in contributing! Here's how to get started.
 
@@ -15,8 +15,8 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/pathfinder.git
-cd pathfinder
+git clone https://github.com/YOUR_USERNAME/jobbloot.git
+cd jobbloot
 python setup.py
 ```
 

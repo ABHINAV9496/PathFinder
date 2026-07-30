@@ -26,9 +26,10 @@ class GenerateTemplateCoverLetter(BaseAPIView):
 
         cover_letter, template_used = generate_cover_letter_template(job_dict)
 
-        app, _ = Application.objects.get_or_create(job=job_obj)
-        app.cover_letter_text = cover_letter
-        app.save(update_fields=["cover_letter_text"])
+        existing_app = Application.objects.filter(job=job_obj).first()
+        if existing_app:
+            existing_app.cover_letter_text = cover_letter
+            existing_app.save(update_fields=["cover_letter_text"])
 
         return self.success({
             "cover_letter": cover_letter,

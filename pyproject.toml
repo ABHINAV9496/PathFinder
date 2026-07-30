@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 include = ["apps*", "common*", "config*"]
 
 [project]
-name = "pathfinder"
+name = "jobbloot"
 version = "0.1.0"
 description = "Automatic job portal — fetches, matches, and applies to Python developer jobs"
 requires-python = ">=3.10"
@@ -26,6 +26,8 @@ dependencies = [
     "daphne>=4.2.2",
     "cryptography>=49.0.0",
     "jobdrop>=0.1.0",
+    "xhtml2pdf>=0.2.15",
+    "pypdf>=5.0.0",
 ]
 
 [dependency-groups]

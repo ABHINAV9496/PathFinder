@@ -81,3 +81,27 @@ export interface AIConfig {
   has_ai_config: boolean;
   presets: Record<string, { name: string; api_base_url: string; model: string }>;
 }
+
+export interface ExperienceEntry {
+  id: number;
+  role: string;
+  company: string;
+  location: string;
+  duration: string;
+  type: "full-time" | "part-time" | "internship" | "freelance" | "contract";
+  highlights: string[];
+  tech: string[];
+}
+
+export interface ATSScore {
+  score: number | null;
+  reason?: string;
+}
+
+export interface TailoredCVResponse {
+  pdf_base64: string;
+  filename: string;
+  ats_score?: number;
+  summary?: string;
+  sections_used?: string[];
+}

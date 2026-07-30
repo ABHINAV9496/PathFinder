@@ -8,9 +8,59 @@ from rest_framework.response import Response
 from apps.jobs.models import AIConfig, Job, Application
 from apps.jobs.llm_client import generate_with_llm
 from apps.jobs.views.base import BaseAPIView
-from config.profile import PROFILE
+from apps.jobs.profile_manager import load_profile
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Anchored Summary — cover_letter.py
+# =============================================================================
+# PURPOSE: Generates AI cover letters via LLM (OpenAI-compatible providers).
+# Invoked by POST /api/jobs/<id>/cover-letter.
+#
+# KEY COMPONENTS:
+#   _build_system_prompt() — returns the system prompt for the LLM, containing:
+#     - OUTPUT RULES: no labels, no thinking tags, must start with salutation
+#     - STRUCTURE: 4-5 paragraphs, mandatory "Dear Hiring Manager," first line,
+#       opening references JD detail, body connects relevant projects, closing
+#       varies and references a JD-specific point not mentioned earlier
+#     - BANNED: forbidden phrases, passive openers, generic closings
+#     - NO REPETITION: no repeating JD phrases across paragraphs
+#     - ACRONYM RULES: never expand/define acronyms (esp. RAG)
+#     - SKILL GAP RULE: forbidden to mention missing skills
+#     - NUMERIC CLAIM RULE: every number must exist verbatim in source data
+#     - GROUNDED CLAIM RULE: soft claims banned unless backed by specific tools
+#     - JD TECHNOLOGY LIST RULE: don't claim full tech groups; verify individually
+#     - TONE: human-like, no AI tells, no corporate fluff
+#     - SENTENCE STRUCTURE RULE: max 2 comma clauses before main verb
+#     - PROJECT ATTRIBUTION RULE: tech must belong to the project it's tied to
+#     - LOCATION / AVAILABILITY / SENIORITY AWARENESS rules
+#     - FINAL CHECK: spelling, tech names, salutation present, signature intact
+#   _build_user_prompt(job) — injects JD details, candidate profile, skill gaps
+#   _validate_letter(letter, job) — deterministic post-generation checks:
+#     a. Salutation presence   b. Signature stripping/reappending
+#     c. Forbidden skills      d. Project attribution
+#     e. Numeric claims        f. Ungrounded claims
+#     g. Placeholder URL replacement
+#   GenerateCoverLetter.post() — orchestrates generation, validation, optional
+#     retry on hard issues, and saves to Application model.
+#
+# KEY VARIABLES / DATA:
+#   _PROFILE_CACHE — lazy-loaded candidate profile from profile_manager
+#   _ACRONYM_MAP — bidirectional acronym↔expansion lookup
+#   _SEMANTIC_CLUSTERS — tech clusters for project-attribution broadening
+#   _UNGROUNDED_CLAIM_PATTERNS — maps vague categories → grounding keywords
+#   _COVERAGE_KEYWORDS — maps requirement categories → JD/letter keywords
+#   _PLACEHOLDER_DOMAINS — URLs to replace with real profile URLs
+# =============================================================================
+
+_PROFILE_CACHE = None
+
+def _get_profile():
+    global _PROFILE_CACHE
+    if _PROFILE_CACHE is None:
+        _PROFILE_CACHE = load_profile()
+    return _PROFILE_CACHE
 
 
 def _clean_cover_letter(text: str) -> str:
@@ -20,32 +70,29 @@ def _clean_cover_letter(text: str) -> str:
 
 
 def _build_signature() -> str:
-    name = PROFILE.get("name", "Developer")
-    phone = PROFILE.get("phone", "")
-    email = PROFILE.get("email", "")
-    portfolio = PROFILE.get("portfolio", "")
-    github = PROFILE.get("github", "")
-    linkedin = PROFILE.get("linkedin", "")
+    name = _get_profile().get("name", "Developer")
+    phone = _get_profile().get("phone", "")
+    portfolio = _get_profile().get("portfolio", "")
+    github = _get_profile().get("github", "")
+    linkedin = _get_profile().get("linkedin", "")
 
     lines = [name]
     if phone:
         lines.append(phone)
-    if email:
-        lines.append(email)
     if portfolio:
-        lines.append(portfolio)
+        lines.append(f"Portfolio: {portfolio}")
     if github:
         lines.append(f"GitHub: {github}")
     if linkedin:
         lines.append(f"LinkedIn: {linkedin}")
-    return "\n".join(lines)
+    return "Regards,\n" + "\n".join(lines)
 
 
 def _compute_skill_gap(job) -> tuple[str, str]:
     """Compare job requirements against candidate profile.
     Returns (candidate_has, candidate_missing) as comma-separated strings."""
     candidate_skills_lower = set()
-    for cat_skills in PROFILE.get("skills", {}).values():
+    for cat_skills in _get_profile().get("skills", {}).values():
         for s in cat_skills:
             candidate_skills_lower.add(s.lower())
 
@@ -105,12 +152,15 @@ STRUCTURE (4-5 short paragraphs, under 180 words body):
 4. If the JD mentions Docker, AWS, CI/CD, Kubernetes, or DevOps -- naturally weave in relevant DevOps experience. If it mentions AI/ML/LLM -- naturally weave in relevant AI experience. Only mention what is relevant.
 5. Closing: A brief, confident close. Vary it between letters -- do NOT always use the same closing sentence.
 
+Then append the signature block exactly as given in the SIGNATURE section below, on a new line after the closing paragraph.
+
 BANNED:
 - "I am genuinely interested in contributing to X and happy to discuss how I can add value from day one" -- never use this closer.
 - "I am writing to express my interest in the X position" -- never use this opener.
 - "Dear Hiring Manager at {{company}}" -- always use exactly "Dear Hiring Manager," and let the company name appear naturally within the first paragraph.
 - Any sentence that could apply to literally any job without changes.
-- Passive or indirect openers like "As I read about X, I am reminded of..." or "I was impressed by...". Open with a direct, confident statement connecting a specific JD detail to a specific thing you built or done -- active voice, no throat-clearing. Example: "Convosight's focus on [JD detail] is close to what I built with [project] -- [specific result]." Get to a concrete detail in the first sentence.
+- Opening with "I am writing to express my interest in the X position at Y" or "I came across the X position and wanted to apply" -- vary the opening sentence, make it specific to a JD detail.
+- Passive or indirect openers like "As I read about X, I am reminded of..." or "I was impressed by...". Open with a direct, confident statement connecting a specific JD detail to a specific thing you have built or done -- active voice, no throat-clearing.
 - Stacking more than one soft/eager phrase in the same letter. Phrases like "I believe my experience aligns with," "I am confident that," "I am excited to bring," and "I would be a strong fit" are each acceptable ONCE per letter, never twice, never back-to-back in adjacent sentences. Pick the single strongest one and cut the rest -- replace with a concrete statement (a result, a number, a specific technology used).
 - Generic closing lines like "I look forward to discussing my qualifications further" or "I look forward to discussing how I can contribute." The closing sentence must reference one specific responsibility, technology, or goal from the JD that has NOT been mentioned earlier in the letter, framed as what you are looking forward to working on.
 
@@ -185,7 +235,7 @@ SENIORITY AWARENESS RULE:
 - In this case, spend one sentence making an honest, specific case for depth over tenure -- e.g. citing the scope or complexity of a real project (architecture decisions, scale numbers, ownership of a full system) rather than years. Do not apologize for experience level or draw attention to it as a weakness. Do not ignore it either -- make the strongest honest case that complexity of work compensates for fewer years, using only real details from the candidate's projects/experience data.
 - If the candidate's experience level roughly matches or exceeds what the title implies, this rule does not apply -- write normally.
 
-SIGNATURE (append exactly as-is at the end of the letter):
+SIGNATURE (append exactly as-is after the closing paragraph):
 {signature}
 
 FINAL CHECK (do this silently before outputting):
@@ -196,12 +246,12 @@ FINAL CHECK (do this silently before outputting):
 
 
 def _build_user_prompt(job) -> str:
-    name = PROFILE.get("name", "Developer")
-    location = PROFILE.get("location", "India")
-    role = PROFILE.get("role", "Full Stack Developer")
-    experience_years = PROFILE.get("experience_years", 1)
+    name = _get_profile().get("name", "Developer")
+    location = _get_profile().get("location", "India")
+    role = _get_profile().get("role", "Full Stack Developer")
+    experience_years = _get_profile().get("experience_years", 1)
 
-    experience = PROFILE.get("experience", [])
+    experience = _get_profile().get("experience", [])
     exp_text = ""
     if experience:
         e = experience[0]
@@ -214,7 +264,7 @@ def _build_user_prompt(job) -> str:
     candidate_has, candidate_missing = _compute_skill_gap(job)
 
     projects_text = ""
-    for p in PROFILE.get("projects", []):
+    for p in _get_profile().get("projects", []):
         projects_text += (
             f"- {p['name']}: {p['description']} "
             f"(Tech: {', '.join(p['tech'][:8])})\n"
@@ -229,6 +279,18 @@ def _build_user_prompt(job) -> str:
         if e.get("duration"):
             experience_text += f" ({e['duration']})"
         experience_text += "\n"
+
+    portfolio = _get_profile().get("portfolio", "")
+    github = _get_profile().get("github", "")
+    linkedin = _get_profile().get("linkedin", "")
+    urls_text = []
+    if portfolio:
+        urls_text.append(f"Portfolio: {portfolio}")
+    if github:
+        urls_text.append(f"GitHub: {github}")
+    if linkedin:
+        urls_text.append(f"LinkedIn: {linkedin}")
+    urls_block = "\n".join(urls_text) if urls_text else "None provided"
 
     return f"""Write a cover letter for this specific job application.
 
@@ -245,9 +307,11 @@ Name: {name}
 Role: {role}
 Experience: {experience_years} year(s) -- {exp_text}
 CANDIDATE TOTAL EXPERIENCE: {experience_years} year(s)
-CANDIDATE LOCATION: {PROFILE.get('location', 'Not specified')}
-OPEN TO RELOCATION: {PROFILE.get('open_to_relocation', 'Not specified')}
-CANDIDATE AVAILABILITY: {PROFILE.get('availability', 'Not specified')}
+CANDIDATE LOCATION: {_get_profile().get('location', 'Not specified')}
+OPEN TO RELOCATION: {_get_profile().get('open_to_relocation', 'Not specified')}
+CANDIDATE AVAILABILITY: {_get_profile().get('availability', 'Not specified')}
+Profile URLs:
+{urls_block}
 
 SKILLS THE CANDIDATE HAS THAT MATCH THIS JOB: {candidate_has}
 SKILLS THIS JOB REQUIRES THAT THE CANDIDATE DOES NOT HAVE: {candidate_missing}
@@ -262,7 +326,8 @@ INSTRUCTIONS:
 - Choose which project(s) to lead with based on relevance to THIS job's matched skills, not a fixed order.
 - Keep it under 180 words in the body (excluding signature).
 - Use the signature block provided in the system prompt exactly as-is.
-- Do NOT add any text before or after the cover letter."""
+- Do NOT add any text before or after the cover letter.
+- When writing the signature, use the actual URLs from the Profile URLs section above -- do not invent or substitute placeholder URLs."""
 
 
 _COVERAGE_KEYWORDS = {
@@ -357,7 +422,7 @@ def _project_allowed_terms(project: dict) -> set[str]:
     for word in re.findall(r'\b[a-zA-Z]{3,}\b', desc.lower()):
         allowed.add(word)
     # Acronym mappings for individual skills
-    for cat_skills in PROFILE.get("skills", {}).values():
+    for cat_skills in _get_profile().get("skills", {}).values():
         for s in cat_skills:
             s_lower = s.lower()
             if s_lower in _ACRONYM_MAP and _ACRONYM_MAP[s_lower] in allowed:
@@ -438,14 +503,14 @@ _UNGROUNDED_CLAIM_PATTERNS = {
 def _build_profile_source_text() -> str:
     """Aggregate all PROFILE text into a single searchable string."""
     parts = []
-    for p in PROFILE.get("projects", []):
+    for p in _get_profile().get("projects", []):
         parts.append(p.get("description", ""))
         parts.append(" ".join(p.get("tech", [])))
-    for e in PROFILE.get("experience", []):
+    for e in _get_profile().get("experience", []):
         for v in e.values():
             if isinstance(v, str):
                 parts.append(v)
-    for cat_skills in PROFILE.get("skills", {}).values():
+    for cat_skills in _get_profile().get("skills", {}).values():
         parts.extend(cat_skills)
     return " ".join(parts).lower()
 
@@ -476,6 +541,35 @@ def _check_ungrounded_claims(letter_body: str) -> list[str]:
     return issues
 
 
+_PLACEHOLDER_DOMAINS = [
+    "example.com", "yourportfolio.com", "yourcompany.com", "portfolio.com",
+    "linkedin.com/in/yourname", "github.com/yourusername",
+]
+
+def _replace_placeholder_urls(text: str) -> str:
+    profile = _get_profile()
+    replacements = {}
+    if profile.get("portfolio"):
+        replacements["portfolio"] = profile["portfolio"]
+    if profile.get("github"):
+        replacements["github"] = profile["github"]
+    if profile.get("linkedin"):
+        replacements["linkedin"] = profile["linkedin"]
+
+    for domain in _PLACEHOLDER_DOMAINS:
+        pattern = re.escape(domain)
+        text = re.sub(pattern, lambda m: _pick_replacement(m.group(), replacements), text, flags=re.IGNORECASE)
+    return text
+
+
+def _pick_replacement(matched: str, replacements: dict) -> str:
+    matched_lower = matched.lower()
+    for key, val in replacements.items():
+        if key in matched_lower:
+            return val
+    return matched
+
+
 def _validate_letter(letter: str, job) -> dict:
     """Run deterministic checks on a cover letter. Returns
     {"issues": [...], "repaired_letter": str}."""
@@ -483,17 +577,14 @@ def _validate_letter(letter: str, job) -> dict:
     repaired = letter
 
     # --- a. SALUTATION CHECK ---
-    if not letter.lstrip().startswith("Dear Hiring Manager,"):
+    if not repaired.startswith("Dear Hiring Manager,") and not repaired.startswith("Dear Hiring Manager ,"):
         issues.append("missing_salutation")
         repaired = "Dear Hiring Manager,\n\n" + repaired.lstrip()
 
     # --- b. SIGNATURE CHECK ---
     expected_sig = _build_signature()
-    # Strip any trailing lines that look like the candidate's name/contact
-    # then append the correct signature
     sig_lower = expected_sig.lower().split("\n")
     body_lines = repaired.rstrip().split("\n")
-    # Walk backwards from end, strip lines that match any signature line
     while body_lines:
         line_stripped = body_lines[-1].strip().lower()
         if any(line_stripped == s for s in sig_lower if s):
@@ -518,18 +609,17 @@ def _validate_letter(letter: str, job) -> dict:
                 issues.append(f"forbidden_skill:{skill}")
 
     # --- d. PROJECT ATTRIBUTION CHECK ---
-    projects = PROFILE.get("projects", [])
+    projects = _get_profile().get("projects", [])
 
     all_tech_terms = set()
     for p in projects:
         all_tech_terms.update(t.lower() for t in p.get("tech", []))
-    for cat_skills in PROFILE.get("skills", {}).values():
+    for cat_skills in _get_profile().get("skills", {}).values():
         all_tech_terms.update(s.lower() for s in cat_skills)
     for term in list(all_tech_terms):
         if term in _ACRONYM_MAP:
             all_tech_terms.add(_ACRONYM_MAP[term])
 
-    # Pre-compute allowed sets (with substrings) per project
     project_allowed = {}
     for p in projects:
         allowed = _project_allowed_terms(p)
@@ -549,13 +639,11 @@ def _validate_letter(letter: str, job) -> dict:
         sent_lower = sent.lower()
         sent_lower_cache[sent] = sent_lower
 
-        # Determine which projects this sentence refers to
         matched_projects = []
         for p in projects:
             if p["name"].lower() in sent_lower:
                 matched_projects.append(p)
 
-        # Also check for aggregate references
         if not matched_projects:
             if any(ref in sent_lower for ref in _AGGREGATE_REFERENCES):
                 matched_projects = list(projects)
@@ -566,7 +654,6 @@ def _validate_letter(letter: str, job) -> dict:
         for term in all_tech_terms:
             if term not in sent_lower:
                 continue
-            # Term must be allowed for EVERY matched project (intersection check)
             for p in matched_projects:
                 if not _is_term_allowed(term, project_allowed[p["name"]]):
                     target = "+".join(p["name"] for p in matched_projects)
@@ -574,22 +661,19 @@ def _validate_letter(letter: str, job) -> dict:
                     break
 
     # --- e. NUMERIC CLAIM CHECK ---
-    # Build source text from projects + experience
     source_text = ""
     for p in projects:
         source_text += p.get("description", "") + " "
         source_text += " ".join(p.get("tech", [])) + " "
-    for e in PROFILE.get("experience", []):
+    for e in _get_profile().get("experience", []):
         source_text += e.get("company", "") + " "
         source_text += e.get("role", "") + " "
         source_text += e.get("duration", "") + " "
         source_text += e.get("location", "") + " "
 
-    # Strip signature from letter for number extraction
     sig_start_idx = repaired.lower().rfind(expected_sig.split("\n")[0].lower())
     letter_body = repaired[:sig_start_idx].rstrip() if sig_start_idx > 0 else repaired
 
-    # Match: 40%, 35 percent, 500K+, 100ms, 2x, 10k+
     number_patterns = re.findall(
         r'\b\d[\d,]*\.?\d*\s*%'
         r'|\b\d[\d,]*\.?\d*\s*(?:percent|percent)'
@@ -600,13 +684,16 @@ def _validate_letter(letter: str, job) -> dict:
     )
     for match in number_patterns:
         normalized = re.sub(r'\s+', '', match.lower())
-        # Check if any form of this number appears in source
         raw_digits = re.sub(r'[^\d.]', '', match)
         if raw_digits and raw_digits not in source_text.lower():
             issues.append(f"unverified_number:{match.strip()}")
 
     # --- f. UNGROUNDED CLAIM CHECK (body only, not signature) ---
     issues.extend(_check_ungrounded_claims(letter_body))
+
+    # --- g. PLACEHOLDER URL REPLACEMENT ---
+    # Replace any placeholder/hallucinated URLs with the real ones from profile
+    repaired = _replace_placeholder_urls(repaired)
 
     return {"issues": issues, "repaired_letter": repaired}
 
@@ -725,6 +812,9 @@ class GenerateCoverLetter(BaseAPIView):
                         "; ".join(retry_validation["issues"]),
                     )
 
+        # --- Final placeholder URL safety net ---
+        cover_letter = _replace_placeholder_urls(cover_letter)
+
         coverage_warnings = _check_requirement_coverage(job, cover_letter)
         if coverage_warnings:
             logger.warning(
@@ -732,8 +822,9 @@ class GenerateCoverLetter(BaseAPIView):
                 job.id, job.company, "; ".join(coverage_warnings),
             )
 
-        app, _ = Application.objects.get_or_create(job=job)
-        app.cover_letter_text = cover_letter
-        app.save(update_fields=["cover_letter_text"])
+        existing_app = Application.objects.filter(job=job).first()
+        if existing_app:
+            existing_app.cover_letter_text = cover_letter
+            existing_app.save(update_fields=["cover_letter_text"])
 
         return self.success({"cover_letter": cover_letter})

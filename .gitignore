@@ -1,5 +1,6 @@
 .env
 .venv/
+.venv_old/
 __pycache__/
 *.pyc
 *.pyo
@@ -18,6 +19,12 @@ config/profile.py
 
 # User-specific profile data (editable from dashboard)
 profile.json
+
+*.err
+*.log
+*.whl
+test_*.pdf
+tests/
 
 # Uploaded files
 media/

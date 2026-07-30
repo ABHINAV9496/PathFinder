@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PathFinder -- one-command setup script.
+JobbLoot -- one-command setup script.
 
 Run:  python setup.py
 
@@ -103,6 +103,8 @@ def ensure_uv() -> None:
 def install_python_deps() -> None:
     banner("Installing Python dependencies")
     run(["uv", "sync", "--no-install-project"])
+    info("Installing cv-engine dependencies...")
+    run(["uv", "pip", "install", "-r", "requirements.txt"], cwd=ROOT / "cv-engine")
 
 
 def copy_env() -> None:
@@ -148,7 +150,7 @@ def install_frontend_deps() -> None:
 # -- main ---------------------------------------------------------------------
 
 def main() -> None:
-    banner("PathFinder -- Setup")
+    banner("JobbLoot -- Setup")
     print("  This script installs everything you need in one go.\n")
 
     check_python()
@@ -182,7 +184,7 @@ def main() -> None:
 
     How to get a Gmail App Password:
       > Go to https://myaccount.google.com/apppasswords
-      > Create one for "Mail" > "Other (Custom name)" > name it "PathFinder"
+      > Create one for "Mail" > "Other (Custom name)" > name it "JobbLoot"
 
   Step 2 -- Edit your profile (config/profile.py)
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -197,7 +199,9 @@ def main() -> None:
 
   Step 3 -- Start the app
   ~~~~~~~~~~~~~~~~~~~~~~~
-    > python manage.py run_all
+    > python setup.py (and answer "y")
+        OR
+    > python manage.py run_all  (Django only, no CV Engine)
 
     Then open http://localhost:5173 in your browser.
 
@@ -223,15 +227,22 @@ def main() -> None:
 
 
 def run_app() -> None:
-    """Start Django backend + Vite frontend in parallel. Ctrl+C kills both."""
-    banner("Starting PathFinder")
-    print("  Backend  -> http://localhost:8000")
-    print("  Frontend -> http://localhost:5173")
-    print("  Press Ctrl+C to stop both.\n")
+    """Start Django backend + CV Engine + Vite frontend in parallel. Ctrl+C kills all."""
+    banner("Starting JobbLoot")
+    print("  Backend    -> http://localhost:8000")
+    print("  CV Engine  -> http://localhost:8001")
+    print("  Frontend   -> http://localhost:5173")
+    print("  Press Ctrl+C to stop all.\n")
 
     backend = subprocess.Popen(
         [sys.executable, "manage.py", "runserver"],
         cwd=ROOT,
+        shell=IS_WIN,
+    )
+    cv_engine = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app",
+         "--host", "0.0.0.0", "--port", "8001"],
+        cwd=ROOT / "cv-engine",
         shell=IS_WIN,
     )
     frontend = subprocess.Popen(
@@ -241,7 +252,7 @@ def run_app() -> None:
     )
 
     def shutdown(sig, frame):
-        for p in (frontend, backend):
+        for p in (frontend, cv_engine, backend):
             try:
                 if IS_WIN:
                     subprocess.run(
@@ -263,6 +274,7 @@ def run_app() -> None:
     except KeyboardInterrupt:
         shutdown(None, None)
     frontend.kill()
+    cv_engine.kill()
 
 
 if __name__ == "__main__":

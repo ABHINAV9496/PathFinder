@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="frontend/public/favicon.svg" alt="PathFinder" width="80" />
+  <img src="frontend/public/favicon.svg" alt="JobbLoot" width="80" />
 </p>
 
-<h1 align="center">PathFinder</h1>
+<h1 align="center">JobbLoot</h1>
 
 <p align="center">
   <strong>AI-powered job portal that fetches, matches, and applies to jobs — all on autopilot.</strong>
@@ -33,7 +33,7 @@
 
 ---
 
-PathFinder is an automated job portal that scrapes Python developer jobs from **RSS feeds**, **Technopark**, and **Cutshort**, matches them against your profile using a weighted scoring engine, generates **AI-powered cover letters**, and sends applications via Gmail — all displayed on a modern React dashboard.
+JobbLoot is an automated job portal that scrapes Python developer jobs from **RSS feeds**, **Technopark**, and **Cutshort**, matches them against your profile using a weighted scoring engine, generates **AI-powered cover letters**, and sends applications via Gmail — all displayed on a modern React dashboard.
 
 ---
 
@@ -80,8 +80,8 @@ PathFinder is an automated job portal that scrapes Python developer jobs from **
 
 ```bash
 # 1. Clone
-git clone https://github.com/nkswalih/PathFinder.git
-cd PathFinder
+git clone https://github.com/dennisjoseph2025/JobbLoot.git
+cd JobbLoot
 
 # 2. One-command setup (installs everything)
 python setup.py
@@ -116,8 +116,8 @@ Open **http://localhost:5173** — the Vite dev server proxies API calls to Djan
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/nkswalih/PathFinder.git
-cd PathFinder
+git clone https://github.com/dennisjoseph2025/JobbLoot.git
+cd JobbLoot
 ```
 
 ### 2. Install Python dependencies
@@ -171,7 +171,7 @@ EMAIL_PASS=your-gmail-app-password
 
 # Optional — Production database
 # DB_ENGINE=django.db.backends.postgresql
-# DB_NAME=pathfinder
+# DB_NAME=jobbloot
 # DB_USER=postgres
 # DB_PASSWORD=your-db-password
 # DB_HOST=localhost
@@ -291,7 +291,7 @@ In production, Django serves the built frontend from `static/` directly — no s
 
 ## AI Setup
 
-PathFinder generates AI-powered cover letters using any **OpenAI-compatible** LLM provider. Configure it from the dashboard — no env vars needed.
+JobbLoot generates AI-powered cover letters using any **OpenAI-compatible** LLM provider. Configure it from the dashboard — no env vars needed.
 
 ### Dashboard configuration (recommended)
 
@@ -360,7 +360,7 @@ AI_MODEL=gpt-4o-mini
 
 ### Reasoning models
 
-PathFinder automatically detects reasoning models (DeepSeek R1, QwQ, o1, o3, o4-mini) and:
+JobbLoot automatically detects reasoning models (DeepSeek R1, QwQ, o1, o3, o4-mini) and:
 - Disables extended reasoning in the API payload
 - Strips `` tags from the response
 - Falls back to a stricter retry prompt if output is malformed
@@ -460,7 +460,7 @@ All endpoints are under `/api/v1/`:
 ## Project Structure
 
 ```
-PathFinder/
+JobbLoot/
 ├── apps/                       # Django applications
 │   ├── core/                   # Shared infrastructure (pagination)
 │   ├── dashboard/              # Legacy template views (still functional)
@@ -596,7 +596,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## Contributors
 
-Thanks to everyone who has contributed to PathFinder!
+Thanks to everyone who has contributed to JobbLoot!
 
 <table>
   <tr>
@@ -628,7 +628,7 @@ Thanks to everyone who has contributed to PathFinder!
 This project is provided **as-is** for **educational and personal use** purposes.
 
 - **No warranty.** This software is provided without warranty of any kind, express or implied. The authors and contributors are not responsible for any damages, data loss, or legal consequences arising from the use of this software.
-- **User responsibility.** You are solely responsible for how you use this tool. By using PathFinder, you acknowledge that:
+- **User responsibility.** You are solely responsible for how you use this tool. By using JobbLoot, you acknowledge that:
   - Automated job applications may violate the Terms of Service of certain job platforms. **Use at your own risk** and always respect platform-specific rules.
   - Sending automated emails via Gmail is subject to [Google's automation policies](https://support.google.com/mail/answer/6579). Excessive sending may result in account suspension.
   - You must comply with all applicable laws and regulations, including data protection laws (GDPR, CCPA, etc.) when handling personal or third-party data.

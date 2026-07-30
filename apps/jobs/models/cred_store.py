@@ -17,7 +17,7 @@ def _derive_key() -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"pathfinder-cred-store-v1",
+        salt=b"jobbloot-cred-store-v1",
         iterations=480000,
     )
     return base64.urlsafe_b64encode(kdf.derive(secret))

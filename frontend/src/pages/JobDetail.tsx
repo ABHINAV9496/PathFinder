@@ -4,6 +4,7 @@ import Markdown from "react-markdown";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
 import type { JobDetail as JobDetailType } from "../types";
+import TailoredCVPreview from "../components/TailoredCVPreview";
 
 function ScoreBadge({ score, size = "md" }: { score: number; size?: "sm" | "md" }) {
   const cls = score >= 50 ? "high" : score >= 30 ? "med" : "low";
@@ -54,6 +55,15 @@ export default function JobDetail() {
   const [applyResult, setApplyResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [generatingTemplateCl, setGeneratingTemplateCl] = useState(false);
   const [templateClError, setTemplateClError] = useState<string | null>(null);
+  const [atsScore, setAtsScore] = useState<number | null>(null);
+  const [atsLoading, setAtsLoading] = useState(false);
+  const [showTailoredModal, setShowTailoredModal] = useState(false);
+  const [tailoredPdfBase64, setTailoredPdfBase64] = useState<string>("");
+  const [tailoredFilename, setTailoredFilename] = useState<string>("");
+  const [generatingCV, setGeneratingCV] = useState(false);
+  const [cvError, setCvError] = useState<string | null>(null);
+  const [applyingTailored, setApplyingTailored] = useState(false);
+  const [tailoredApplyResult, setTailoredApplyResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -62,6 +72,15 @@ export default function JobDetail() {
       setLoading(false);
     });
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !job) return;
+    setAtsLoading(true);
+    api.jobs.atsScore(Number(id)).then((d) => {
+      setAtsScore(d.score);
+      setAtsLoading(false);
+    }).catch(() => setAtsLoading(false));
+  }, [id, job]);
 
   function copyCoverLetter() {
     if (!job?.application?.cover_letter_text) return;
@@ -134,6 +153,46 @@ export default function JobDetail() {
       setTemplateClError(e.message || "Failed to generate cover letter");
     }
     setGeneratingTemplateCl(false);
+  }
+
+  async function handleGenerateTailoredCV() {
+    if (!job) return;
+    setGeneratingCV(true);
+    setCvError(null);
+    setTailoredApplyResult(null);
+    try {
+      const res = await api.jobs.generateCV(job.id);
+      setTailoredPdfBase64(res.pdf_base64);
+      setTailoredFilename(res.filename);
+      setShowTailoredModal(true);
+    } catch (e: any) {
+      setCvError(e.message || "Failed to generate tailored CV");
+    }
+    setGeneratingCV(false);
+  }
+
+  async function handleApplyTailored() {
+    if (!job || !tailoredPdfBase64) return;
+    setApplyingTailored(true);
+    setTailoredApplyResult(null);
+    try {
+      const res = await api.jobs.tailoredApply(job.id, tailoredPdfBase64);
+      if (res.success) {
+        setTailoredApplyResult({ type: "success", msg: res.message || "Application sent with tailored CV!" });
+        setJob((prev) => prev ? {
+          ...prev,
+          status: "applied",
+          application: prev.application
+            ? { ...prev.application, status: "sent" }
+            : { id: 0, job: prev, sent_at: new Date().toISOString(), status: "sent", email_subject: "", cover_letter_text: "", error_message: "", skills_highlighted: [], skills_in_job_desc: [], skill_match_pct: 0, criteria_data: {}, skill_gaps: [], match_explanation: "" },
+        } : prev);
+      } else {
+        setTailoredApplyResult({ type: "error", msg: res.message || "Failed to send application." });
+      }
+    } catch (e: any) {
+      setTailoredApplyResult({ type: "error", msg: e.message || "Failed to apply." });
+    }
+    setApplyingTailored(false);
   }
 
   if (loading) {
@@ -217,6 +276,11 @@ export default function JobDetail() {
           <h2 className="jd-title">{job.title}</h2>
           <div className="jd-meta">
             <ScoreBadge score={job.match_score} />
+            {atsLoading ? (
+              <span className="jd-ats-loading">ATS ...</span>
+            ) : atsScore != null ? (
+              <span className={"jd-ats-badge jd-ats-" + (atsScore >= 70 ? "high" : atsScore >= 40 ? "med" : "low")}>ATS {atsScore}%</span>
+            ) : null}
             <span className="jd-meta-text">{job.company}</span>
             <span className="jd-dot">·</span>
             <span className="jd-meta-text">{job.location}</span>
@@ -250,6 +314,29 @@ export default function JobDetail() {
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
                   </svg>
                   Auto Apply
+                </>
+              )}
+            </button>
+          )}
+          {canApply && (
+            <button
+              className={"jd-btn jd-btn-tailored" + (generatingCV ? " loading" : "")}
+              onClick={handleGenerateTailoredCV}
+              disabled={generatingCV}
+            >
+              {generatingCV ? (
+                <>
+                  <span className="spinner" /> Generating...
+                </>
+              ) : (
+                <>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <path d="M12 18v-6" />
+                    <path d="M9 15l3 3 3-3" />
+                  </svg>
+                  Apply with Tailored CV
                 </>
               )}
             </button>
@@ -291,6 +378,17 @@ export default function JobDetail() {
             <line x1="9" y1="9" x2="15" y2="15" />
           </svg>
           {templateClError}
+        </div>
+      )}
+
+      {cvError && (
+        <div className="jd-alert jd-alert-error">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          {cvError}
         </div>
       )}
 
@@ -702,6 +800,18 @@ export default function JobDetail() {
           </div>
         )}
       </div>
+
+      {showTailoredModal && (
+        <TailoredCVPreview
+          pdfBase64={tailoredPdfBase64}
+          filename={tailoredFilename}
+          atsScore={atsScore}
+          onApply={handleApplyTailored}
+          onClose={() => { setShowTailoredModal(false); setTailoredApplyResult(null); }}
+          applying={applyingTailored}
+          applyResult={tailoredApplyResult}
+        />
+      )}
     </>
   );
 }

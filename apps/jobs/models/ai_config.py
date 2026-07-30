@@ -24,7 +24,7 @@ def _derive_ai_key() -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"pathfinder-ai-config-v1",
+        salt=b"jobbloot-ai-config-v1",
         iterations=480000,
     )
     return base64.urlsafe_b64encode(kdf.derive(secret))

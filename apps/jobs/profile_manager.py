@@ -19,8 +19,8 @@ def load_profile() -> dict:
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Failed to load profile.json: {e}, falling back to config")
 
-    from config.profile import PROFILE
-    return PROFILE
+    from config.profile import SKILL_WEIGHTS
+    return {"skills": {}, "projects": [], "experience": [], "looking_for": []}
 
 
 def save_profile(profile: dict) -> bool:
@@ -32,3 +32,21 @@ def save_profile(profile: dict) -> bool:
     except Exception as e:
         logger.error(f"Failed to save profile.json: {e}")
         return False
+
+
+def load_skill_weights() -> dict:
+    """Load SKILL_WEIGHTS from config/profile.py."""
+    from config.profile import SKILL_WEIGHTS
+    return SKILL_WEIGHTS
+
+
+def load_skill_aliases() -> dict:
+    """Load SKILL_ALIASES from config/profile.py."""
+    from config.profile import SKILL_ALIASES
+    return SKILL_ALIASES
+
+
+def load_skill_categories() -> dict:
+    """Load SKILL_CATEGORIES from config/profile.py."""
+    from config.profile import SKILL_CATEGORIES
+    return SKILL_CATEGORIES

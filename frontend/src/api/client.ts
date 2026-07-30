@@ -1,4 +1,4 @@
-import type { PaginatedResponse, Job, JobDetail, Application, SecurityStatus, ResumeStatus, ApplyProgress, AIConfig } from "../types";
+import type { PaginatedResponse, Job, JobDetail, Application, SecurityStatus, ResumeStatus, ApplyProgress, AIConfig, ATSScore } from "../types";
 
 const BASE = "/api/v1";
 
@@ -31,6 +31,25 @@ export const api = {
     },
     generateTemplateCoverLetter(id: number): Promise<{ cover_letter: string; template: string }> {
       return fetch(`${BASE}/jobs/${id}/generate-template-cover-letter/`, { method: "POST" }).then((r) => {
+        if (!r.ok) return r.json().then((d) => { throw new Error(d.detail || d.error || `API error: ${r.status}`); });
+        return r.json();
+      });
+    },
+    atsScore(id: number): Promise<ATSScore> {
+      return get(`/jobs/${id}/ats-score/`);
+    },
+    generateCV(id: number): Promise<{ pdf_base64: string; filename: string }> {
+      return fetch(`${BASE}/jobs/${id}/generate-cv/`, { method: "POST" }).then((r) => {
+        if (!r.ok) return r.json().then((d) => { throw new Error(d.detail || d.error || `API error: ${r.status}`); });
+        return r.json();
+      });
+    },
+    tailoredApply(id: number, resumePdfBase64: string): Promise<{ success: boolean; message: string }> {
+      return fetch(`${BASE}/jobs/${id}/tailored-apply/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume_pdf_base64: resumePdfBase64 }),
+      }).then((r) => {
         if (!r.ok) return r.json().then((d) => { throw new Error(d.detail || d.error || `API error: ${r.status}`); });
         return r.json();
       });
