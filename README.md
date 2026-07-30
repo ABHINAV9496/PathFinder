@@ -178,31 +178,6 @@ EMAIL_PASS=your-gmail-app-password
 # DB_PORT=5432
 ```
 
-<details>
-<summary><strong>Full environment variable reference</strong></summary>
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DJANGO_SECRET_KEY` | `dev-insecure-key` | Django secret key — generate a real one for production |
-| `EMAIL_USER` | — | Gmail address for sending applications |
-| `EMAIL_PASS` | — | Gmail [App Password](https://myaccount.google.com/apppasswords) (16 chars, no spaces) |
-| `RESUME_PATH` | `resume/Your_Resume.pdf` | **Legacy** — resume path fallback (prefer uploading via dashboard) |
-| `AI_PROVIDER` | `openai` | LLM provider: `openai`, `groq`, `deepseek`, `gemini`, `openrouter` |
-| `AI_API_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
-| `AI_API_KEY` | — | API key for the LLM provider |
-| `AI_MODEL` | `gpt-4o-mini` | Model to use for cover letter generation |
-| `FETCH_INTERVAL_MINUTES` | `60` | How often the scheduler fetches new jobs |
-| `EMAIL_SMTP_HOST` | `smtp.gmail.com` | SMTP server |
-| `EMAIL_SMTP_PORT` | `465` | SMTP port |
-| `DB_ENGINE` | `sqlite3` | Database backend (use `postgresql` for prod) |
-| `DB_NAME` | `db.sqlite3` | Database name |
-| `DB_USER` | — | Database user |
-| `DB_PASSWORD` | — | Database password |
-| `DB_HOST` | `localhost` | Database host |
-| `DB_PORT` | `5432` | Database port |
-
-</details>
-
 ### 5. Create your candidate profile
 
 ```bash
@@ -240,52 +215,20 @@ CANDIDATE_PROFILE = {
 
 You can also edit your profile from the dashboard at **http://localhost:8000/profile/** — changes take effect on the next fetch cycle without restarting.
 
-### 6. Upload your resume
-
-Resumes are uploaded through the **dashboard** (not placed on disk manually):
-
-1. Start the server (`python manage.py runserver`)
-2. Open **http://localhost:8000/profile/**
-3. Click the resume upload area and select your PDF
-4. Max **5MB**, PDF only — old resume is automatically replaced on new upload
-
-Uploaded resumes are stored in `media/resumes/` (Django `FileField`).
-
-> **Legacy fallback:** The `RESUME_PATH` env var (`resume/Your_Resume.pdf`) is still used by the SMTP applicant as a fallback if no resume is uploaded via the dashboard. You can safely ignore it if you upload through the UI.
-
-### 7. Run database migrations
+### 6. Run database migrations
 
 ```bash
 python manage.py migrate
 ```
 
-### 8. Start the application
-
-**Development (two terminals):**
+### 7. Start the application
 
 ```bash
-# Terminal 1 — Django backend
-python manage.py runserver
-
-# Terminal 2 — Vite frontend (with hot reload)
-cd frontend
-npm run dev
+python manage.py runserver       # Terminal 1 — Django on :8000
+cd frontend && npm run dev       # Terminal 2 — Vite on :5173
 ```
 
 Then open **http://localhost:5173**.
-
-**Production:**
-
-```bash
-# Build frontend
-cd frontend
-npm run build                    # Outputs to ../static/
-
-# Run with Daphne (ASGI — supports WebSocket)
-python manage.py runserver       # or use daphne directly
-```
-
-In production, Django serves the built frontend from `static/` directly — no separate Vite server needed.
 
 ---
 
@@ -640,7 +583,7 @@ This project is provided **as-is** for **educational and personal use** purposes
 
 ## License
 
-MIT License — Copyright (c) 2025 Dennis Joseph
+MIT License — Copyright (c) 2026 Dennis Joseph, Mohammed Swalih N K
 
 See [LICENSE](LICENSE) for full terms. If you use or distribute this software, you must mention the original author.
 
