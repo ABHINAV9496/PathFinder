@@ -7,10 +7,18 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from config.settings import EMAIL_USER, EMAIL_PASS, EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, RESUME_PATH
-from config.profile import PROFILE
+from apps.jobs.profile_manager import load_profile
 from apps.jobs.models import Job, Application, DailyStats
 
 logger = logging.getLogger(__name__)
+
+_PROFILE_CACHE = None
+
+def _get_profile():
+    global _PROFILE_CACHE
+    if _PROFILE_CACHE is None:
+        _PROFILE_CACHE = load_profile()
+    return _PROFILE_CACHE
 
 
 def send_daily_summary():
@@ -70,8 +78,8 @@ def send_daily_summary():
 
     body_lines.extend([
         "--- Your Profile ---",
-        f"Name:     {PROFILE['name']}",
-        f"Email:    {PROFILE['email']}",
+        f"Name:     {_get_profile()['name']}",
+        f"Email:    {_get_profile()['email']}",
         f"Resume:   {'Found' if os.path.exists(RESUME_PATH) else 'NOT FOUND - place resume.pdf in resume/ folder'}",
         "",
         f"Dashboard: http://localhost:8000",

@@ -5,14 +5,17 @@ from config.settings import (
     MATCH_THRESHOLD_APPLY, MATCH_THRESHOLD_TRACK,
     MIN_SALARY, MAX_SKILL_GAP_PCT,
 )
-from config.profile import PROFILE, SKILL_WEIGHTS
+from config.profile import SKILL_WEIGHTS
 from config.constants import NORTH_INDIA_STATES, REJECT_ROLE_KEYWORDS
 from apps.jobs.services import _extract_salary_from_text
+from apps.jobs.profile_manager import load_profile
 
 logger = logging.getLogger(__name__)
 
+_profile = load_profile()
+
 ALL_MY_SKILLS = []
-for _cat in PROFILE["skills"].values():
+for _cat in _profile.get("skills", {}).values():
     ALL_MY_SKILLS.extend(_cat)
 ALL_MY_SKILLS_LOWER = {s.lower(): s for s in ALL_MY_SKILLS}
 
@@ -92,7 +95,7 @@ def _find_relevant_project(matched_skills: list[str]) -> dict | None:
     best_overlap = 0
 
     matched_lower = [s.lower() for s in matched_skills]
-    for project in PROFILE["projects"]:
+    for project in _profile.get("projects", []):
         overlap = sum(1 for t in project["tech"] if t.lower() in matched_lower)
         if overlap > best_overlap:
             best_overlap = overlap
@@ -113,7 +116,7 @@ def match_job(job: dict) -> dict:
 
     is_target_role = any(
         tl.lower() in job_title_lower or job_title_lower in tl.lower()
-        for tl in PROFILE["looking_for"]
+        for tl in _profile.get("looking_for", [])
     )
     if not is_target_role:
         has_rejected_keyword = any(kw in job_title_lower for kw in REJECT_ROLE_KEYWORDS)
@@ -128,8 +131,8 @@ def match_job(job: dict) -> dict:
         return _reject_job(job, f"Salary too low (\u20b9{salary:,})")
 
     required_years = _extract_experience_years(search_text)
-    exp_min = PROFILE.get("experience_min", 0)
-    exp_max = PROFILE.get("experience_max", PROFILE.get("experience_years", 3))
+    exp_min = _profile.get("experience_min", 0)
+    exp_max = _profile.get("experience_max", _profile.get("experience_years", 3))
 
     if required_years is not None:
         if required_years > exp_max:
@@ -175,7 +178,7 @@ def match_job(job: dict) -> dict:
         experience_score = 0
 
     title_score = 0
-    for title in PROFILE["looking_for"]:
+    for title in _profile.get("looking_for", []):
         if title.lower() in job_title_lower or job_title_lower in title.lower():
             title_score = 5
             break

@@ -109,8 +109,8 @@ def generate_with_llm(
         "Content-Type": "application/json",
     }
     if "openrouter" in api_base_url.lower():
-        headers["HTTP-Referer"] = "https://pathfinder.dev"
-        headers["X-Title"] = "PathFinder"
+        headers["HTTP-Referer"] = "https://jobbloot.dev"
+        headers["X-Title"] = "JobbLoot"
 
     is_reasoning = _detect_reasoning_model(model)
 

@@ -47,7 +47,7 @@ function Sidebar() {
           </svg>
         </div>
         <div className="sidebar-brand">
-          <span className="sidebar-brand-name">PathFinder</span>
+          <span className="sidebar-brand-name">JobbLoot</span>
           <span className="sidebar-brand-version">v0.1</span>
         </div>
       </div>

@@ -60,11 +60,15 @@ export default function WebApply() {
   const [items, setItems] = useState<WebApplyItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.webApply.list().then((d: any) => {
       setItems(d.applications || []);
       setTotalCount(d.total_count || 0);
+      setLoading(false);
+    }).catch((err: Error) => {
+      setError(err.message || "Failed to load web applications");
       setLoading(false);
     });
   }, []);
@@ -77,6 +81,23 @@ export default function WebApply() {
           {[...Array(5)].map((_, i) => (
             <div key={i} className="pf-skeleton pf-skeleton-line" style={{ height: 80, width: "100%" }} />
           ))}
+        </div>
+      </>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <div className="page-header"><h2>Web Apply</h2></div>
+        <div className="st-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <h3>Failed to load</h3>
+          <p>{error}</p>
         </div>
       </>
     );

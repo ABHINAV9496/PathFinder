@@ -2,11 +2,15 @@ import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
-import type { AIConfig } from "../types";
+import type { AIConfig, ExperienceEntry } from "../types";
 
 interface ProfileData {
   name: string;
   email: string;
+  phone: string;
+  github: string;
+  linkedin: string;
+  portfolio: string;
   role: string;
   experience_years: number;
   experience_min: number;
@@ -14,6 +18,7 @@ interface ProfileData {
   location: string;
   skills: Record<string, string[]>;
   projects: { name: string; description: string; tech: string; link: string }[];
+  experience: ExperienceEntry[];
   looking_for: string[];
   languages: string[];
   [key: string]: unknown;
@@ -290,11 +295,23 @@ export default function Profile() {
             <FormField label="Email">
               <input className="pf-input" type="email" value={profile.email || ""} onChange={(e) => set("email", e.target.value)} required />
             </FormField>
+            <FormField label="Phone">
+              <input className="pf-input" type="tel" value={profile.phone || ""} onChange={(e) => set("phone", e.target.value)} placeholder="+91 98765 43210" />
+            </FormField>
             <FormField label="Role / Title">
               <input className="pf-input" type="text" value={profile.role || ""} onChange={(e) => set("role", e.target.value)} required />
             </FormField>
             <FormField label="Location">
               <input className="pf-input" type="text" value={profile.location || ""} onChange={(e) => set("location", e.target.value)} required />
+            </FormField>
+            <FormField label="GitHub" hint="github.com/username">
+              <input className="pf-input" type="text" value={profile.github || ""} onChange={(e) => set("github", e.target.value)} placeholder="github.com/username" />
+            </FormField>
+            <FormField label="LinkedIn" hint="linkedin.com/in/username">
+              <input className="pf-input" type="text" value={profile.linkedin || ""} onChange={(e) => set("linkedin", e.target.value)} placeholder="linkedin.com/in/username" />
+            </FormField>
+            <FormField label="Portfolio" hint="Personal website URL">
+              <input className="pf-input" type="url" value={profile.portfolio || ""} onChange={(e) => set("portfolio", e.target.value)} placeholder="https://yoursite.com" />
             </FormField>
           </div>
         </SectionCard>
@@ -312,6 +329,119 @@ export default function Profile() {
               <input className="pf-input" type="number" min={0} value={profile.experience_max || 3} onChange={(e) => set("experience_max", parseInt(e.target.value) || 0)} />
             </FormField>
           </div>
+        </SectionCard>
+
+        {/* Work Experience */}
+        <SectionCard title="Work Experience" description="Detailed work history. Max 5 entries. Used to generate tailored resumes.">
+          {(profile.experience || []).length === 0 && (
+            <div className="pf-empty-projects">
+              <p>No work experience entries yet. Add your work history for tailored resume generation.</p>
+            </div>
+          )}
+          {(profile.experience || []).map((exp, i) => (
+            <div key={exp.id ?? i} className="pf-project-card">
+              <div className="pf-project-header">
+                <span className="pf-project-num">Experience {i + 1}</span>
+                <button type="button" className="pf-project-remove" onClick={() => {
+                  const newExp = (profile.experience || []).filter((_, idx) => idx !== i);
+                  set("experience", newExp as any);
+                }} title="Remove entry">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div className="pf-grid pf-grid-2">
+                <FormField label="Role / Title">
+                  <input className="pf-input" type="text" value={exp.role} onChange={(e) => {
+                    const newExp = [...(profile.experience || [])];
+                    newExp[i] = { ...newExp[i], role: e.target.value };
+                    set("experience", newExp as any);
+                  }} placeholder="e.g. Backend Developer" />
+                </FormField>
+                <FormField label="Company">
+                  <input className="pf-input" type="text" value={exp.company} onChange={(e) => {
+                    const newExp = [...(profile.experience || [])];
+                    newExp[i] = { ...newExp[i], company: e.target.value };
+                    set("experience", newExp as any);
+                  }} placeholder="e.g. Acme Corp" />
+                </FormField>
+                <FormField label="Location">
+                  <input className="pf-input" type="text" value={exp.location} onChange={(e) => {
+                    const newExp = [...(profile.experience || [])];
+                    newExp[i] = { ...newExp[i], location: e.target.value };
+                    set("experience", newExp as any);
+                  }} placeholder="e.g. Bangalore, India" />
+                </FormField>
+                <FormField label="Duration">
+                  <input className="pf-input" type="text" value={exp.duration} onChange={(e) => {
+                    const newExp = [...(profile.experience || [])];
+                    newExp[i] = { ...newExp[i], duration: e.target.value };
+                    set("experience", newExp as any);
+                  }} placeholder="e.g. Jan 2023 - Present" />
+                </FormField>
+                <FormField label="Type">
+                  <select
+                    className="pf-input pf-select"
+                    value={exp.type}
+                    onChange={(e) => {
+                      const newExp = [...(profile.experience || [])];
+                      newExp[i] = { ...newExp[i], type: e.target.value as ExperienceEntry["type"] };
+                      set("experience", newExp as any);
+                    }}
+                  >
+                    <option value="full-time">Full-time</option>
+                    <option value="part-time">Part-time</option>
+                    <option value="internship">Internship</option>
+                    <option value="freelance">Freelance</option>
+                    <option value="contract">Contract</option>
+                  </select>
+                </FormField>
+                <FormField label="Tech stack" hint="Comma-separated">
+                  <input className="pf-input" type="text" value={(exp.tech || []).join(", ")} onChange={(e) => {
+                    const newExp = [...(profile.experience || [])];
+                    newExp[i] = { ...newExp[i], tech: e.target.value.split(",").map(s => s.trim()).filter(Boolean) };
+                    set("experience", newExp as any);
+                  }} placeholder="e.g. Django, React, PostgreSQL" />
+                </FormField>
+              </div>
+              <FormField label="Highlights" hint="One per line — key achievements in this role">
+                <textarea
+                  className="pf-input pf-textarea"
+                  value={(exp.highlights || []).join("\n")}
+                  onChange={(e) => {
+                    const newExp = [...(profile.experience || [])];
+                    newExp[i] = { ...newExp[i], highlights: e.target.value.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 5) };
+                    set("experience", newExp as any);
+                  }}
+                  rows={3}
+                  placeholder={"Built microservice handling 10K requests/sec\nReduced API latency by 40%\nLed team of 3 junior developers"}
+                />
+              </FormField>
+            </div>
+          ))}
+          {(profile.experience || []).length < 5 && (
+            <button type="button" className="pf-btn-add" onClick={() => {
+              const newExp = [...(profile.experience || []), {
+                id: Date.now(),
+                role: "",
+                company: "",
+                location: "",
+                duration: "",
+                type: "full-time" as const,
+                highlights: [],
+                tech: [],
+              }];
+              set("experience", newExp as any);
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add experience entry
+            </button>
+          )}
         </SectionCard>
 
         {/* Skills */}

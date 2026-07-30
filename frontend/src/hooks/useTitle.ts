@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-const SITE = "PathFinder";
+const SITE = "JobbLoot";
 
 export function useTitle(title: string, description?: string) {
   useEffect(() => {

@@ -51,6 +51,46 @@ class UserProfile(BaseAPIView):
             except (ValueError, TypeError):
                 profile[field] = default
 
+        experience_raw = profile.get("experience", [])
+        if isinstance(experience_raw, str):
+            try:
+                experience_raw = json.loads(experience_raw)
+            except json.JSONDecodeError:
+                experience_raw = []
+        if not isinstance(experience_raw, list):
+            experience_raw = []
+        valid_types = {"full-time", "part-time", "internship", "freelance", "contract"}
+        cleaned_exp = []
+        for i, entry in enumerate(experience_raw[:5]):
+            if not isinstance(entry, dict):
+                continue
+            exp_type = entry.get("type", "full-time")
+            if exp_type not in valid_types:
+                exp_type = "full-time"
+            highlights = entry.get("highlights", [])
+            if isinstance(highlights, str):
+                highlights = [h.strip() for h in highlights.split("\n") if h.strip()]
+            cleaned_exp.append({
+                "id": entry.get("id", i),
+                "role": entry.get("role", ""),
+                "company": entry.get("company", ""),
+                "location": entry.get("location", ""),
+                "duration": entry.get("duration", ""),
+                "type": exp_type,
+                "highlights": highlights[:5],
+                "tech": entry.get("tech", []),
+            })
+        profile["experience"] = cleaned_exp
+
+        phone_raw = profile.get("phone", "")
+        if isinstance(phone_raw, str):
+            profile["phone"] = phone_raw.strip()
+
+        for field in ["github", "linkedin", "portfolio"]:
+            val = profile.get(field, "")
+            if isinstance(val, str):
+                profile[field] = val.strip()
+
         if save_profile(profile):
             return self.success({"success": True, "message": "Profile saved successfully"})
         return self.error("Failed to save profile", status.HTTP_500_INTERNAL_SERVER_ERROR)

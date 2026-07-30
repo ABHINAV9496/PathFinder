@@ -7,9 +7,17 @@ from email.mime.application import MIMEApplication
 from pathlib import Path
 
 from config.settings import EMAIL_USER, EMAIL_PASS, EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, RESUME_PATH
-from config.profile import PROFILE
+from apps.jobs.profile_manager import load_profile
 
 logger = logging.getLogger(__name__)
+
+_PROFILE_CACHE = None
+
+def _get_profile():
+    global _PROFILE_CACHE
+    if _PROFILE_CACHE is None:
+        _PROFILE_CACHE = load_profile()
+    return _PROFILE_CACHE
 
 BACKEND_SKILLS = {
     "python", "django", "drf", "django rest framework", "rest api",
@@ -85,14 +93,14 @@ def _pick_project(jd_req: dict) -> dict:
 
     best = None
     best_score = 0
-    for p in PROFILE["projects"]:
+    for p in _get_profile()["projects"]:
         p_tech = set(t.lower() for t in p["tech"])
         overlap = len(jd_keywords & p_tech)
         if overlap > best_score:
             best_score = overlap
             best = p
 
-    return best or PROFILE["projects"][0]
+    return best or _get_profile()["projects"][0]
 
 
 def _skill_list(jd_req: dict, max_count: int = 5) -> str:
@@ -157,14 +165,14 @@ def generate_cover_letter(job: dict) -> str:
 
     location = job.get("location", "").lower()
     if "remote" in location:
-        location_line = f"I am based in {PROFILE['location']} and available for remote positions."
+        location_line = f"I am based in {_get_profile()['location']} and available for remote positions."
     elif "india" in location:
-        location_line = f"I am based in {PROFILE['location']} and open to opportunities across India."
+        location_line = f"I am based in {_get_profile()['location']} and open to opportunities across India."
     else:
-        location_line = f"I am based in {PROFILE['location']} and open to relocation for the right opportunity."
+        location_line = f"I am based in {_get_profile()['location']} and open to relocation for the right opportunity."
 
     second_project = None
-    for p in PROFILE["projects"]:
+    for p in _get_profile()["projects"]:
         if p["name"] != project["name"]:
             second_project = p
             break
@@ -178,7 +186,7 @@ def generate_cover_letter(job: dict) -> str:
             f"all running live in production."
         )
 
-    phone_line = f" | {PROFILE['phone']}" if PROFILE.get("phone") else ""
+    phone_line = f" | {_get_profile()['phone']}" if _get_profile().get("phone") else ""
     letter = f"""Dear Hiring Manager,
 
 I am applying for the {title} position at {company}. {backend_line}{second_line}{devops_line}{ai_line}
@@ -188,16 +196,16 @@ I am applying for the {title} position at {company}. {backend_line}{second_line}
 I am genuinely interested in contributing to {company} and happy to discuss how I can add value from day one.
 
 Sincerely,
-{PROFILE['name']}{phone_line} | {PROFILE['email']}
-{PROFILE['portfolio']}
-GitHub: {PROFILE['github']}
-LinkedIn: {PROFILE['linkedin']}
+{_get_profile()['name']}{phone_line} | {_get_profile()['email']}
+{_get_profile()['portfolio']}
+GitHub: {_get_profile()['github']}
+LinkedIn: {_get_profile()['linkedin']}
 """
 
     return letter.strip()
 
 
-def send_application(job: dict, cover_letter: str, email_user: str = None, email_pass: str = None, resume_path: str = None) -> tuple[bool, str]:
+def send_application(job: dict, cover_letter: str, email_user: str = None, email_pass: str = None, resume_path: str = None, tailored_resume_bytes: bytes = None, tailored_filename: str = None) -> tuple[bool, str]:
     apply_email = job.get("apply_email", "")
     if not apply_email:
         return False, "No email address found for this job"
@@ -210,22 +218,29 @@ def send_application(job: dict, cover_letter: str, email_user: str = None, email
     msg = MIMEMultipart()
     msg["From"] = sender
     msg["To"] = apply_email
-    msg["Subject"] = f"Application for {job.get('title', 'Python Developer')} - {PROFILE['name']}"
+    msg["Subject"] = f"Application for {job.get('title', 'Python Developer')} - {_get_profile()['name']}"
 
     msg.attach(MIMEText(cover_letter, "plain"))
 
-    res_path = Path(resume_path) if resume_path else Path(RESUME_PATH)
-    if res_path.exists():
-        with open(res_path, "rb") as f:
-            attachment = MIMEApplication(f.read(), _subtype="pdf")
-            attachment.add_header(
-                "Content-Disposition", "attachment",
-                filename=f"{PROFILE['name'].replace(' ', '_')}_Resume.pdf"
-            )
-            msg.attach(attachment)
-        logger.info(f"Resume attached: {res_path}")
+    if tailored_resume_bytes:
+        attachment = MIMEApplication(tailored_resume_bytes, _subtype="pdf")
+        filename = tailored_filename or f"{_get_profile()['name'].replace(' ', '_')}_Resume.pdf"
+        attachment.add_header("Content-Disposition", "attachment", filename=filename)
+        msg.attach(attachment)
+        logger.info(f"Tailored resume attached: {filename}")
     else:
-        logger.warning(f"Resume not found at {res_path}")
+        res_path = Path(resume_path) if resume_path else Path(RESUME_PATH)
+        if res_path.exists():
+            with open(res_path, "rb") as f:
+                attachment = MIMEApplication(f.read(), _subtype="pdf")
+                attachment.add_header(
+                    "Content-Disposition", "attachment",
+                    filename=f"{_get_profile()['name'].replace(' ', '_')}_Resume.pdf"
+                )
+                msg.attach(attachment)
+            logger.info(f"Resume attached: {res_path}")
+        else:
+            logger.warning(f"Resume not found at {res_path}")
 
     try:
         with smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT) as server:
@@ -241,14 +256,18 @@ def send_application(job: dict, cover_letter: str, email_user: str = None, email
         return False, str(e)
 
 
-def apply_to_job(job: dict, email_user: str = None, email_pass: str = None, resume_path: str = None) -> dict:
-    try:
-        from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
-        cover_letter, template_used = generate_cover_letter_template(job)
-        logger.info(f"Template cover letter ({template_used}) generated for {job.get('company')}")
-    except Exception as e:
-        logger.warning(f"Template cover letter failed, falling back to old generator: {e}")
-        cover_letter = generate_cover_letter(job)
+def apply_to_job(job: dict, email_user: str = None, email_pass: str = None, resume_path: str = None, cover_letter_text: str = None) -> dict:
+    if cover_letter_text:
+        cover_letter = cover_letter_text
+        logger.info(f"Using existing cover letter for {job.get('company')}")
+    else:
+        try:
+            from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
+            cover_letter, template_used = generate_cover_letter_template(job)
+            logger.info(f"Template cover letter ({template_used}) generated for {job.get('company')}")
+        except Exception as e:
+            logger.warning(f"Template cover letter failed, falling back to old generator: {e}")
+            cover_letter = generate_cover_letter(job)
 
     success, message = send_application(job, cover_letter, email_user=email_user, email_pass=email_pass, resume_path=resume_path)
 
@@ -275,7 +294,7 @@ def apply_to_job(job: dict, email_user: str = None, email_pass: str = None, resu
         "success": success,
         "message": message,
         "cover_letter": cover_letter,
-        "email_subject": f"Application for {job.get('title', 'Python Developer')} - {PROFILE['name']}",
+        "email_subject": f"Application for {job.get('title', 'Python Developer')} - {_get_profile()['name']}",
         "skills_in_jd": skills_in_jd,
         "skills_highlighted": skills_highlighted,
         "sections_included": sections_included,

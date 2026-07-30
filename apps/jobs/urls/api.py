@@ -12,6 +12,9 @@ from apps.jobs.views import (
 )
 from apps.jobs.views.fetcher import run_fetcher, fetcher_status
 from apps.jobs.views.apply_queue import apply_progress
+from apps.jobs.views.generate_cv import GenerateCV
+from apps.jobs.views.ats_score import ATSScoreView
+from apps.jobs.views.tailored_apply import TailoredApply
 
 api_urlpatterns = [
     # Jobs
@@ -26,6 +29,9 @@ api_urlpatterns = [
     path("apply-queue/batch/", BatchApply.as_view(), name="api_batch_apply"),
     path("apply-queue/progress/", apply_progress, name="api_apply_progress"),
     path("jobs/<int:job_id>/apply/", ApplyToJob.as_view(), name="api_apply_to_job"),
+    path("jobs/<int:job_id>/tailored-apply/", TailoredApply.as_view(), name="api_tailored_apply"),
+    path("jobs/<int:job_id>/generate-cv/", GenerateCV.as_view(), name="api_generate_cv"),
+    path("jobs/<int:job_id>/ats-score/", ATSScoreView.as_view(), name="api_ats_score"),
     path("jobs/<int:job_id>/generate-cover-letter/", GenerateCoverLetter.as_view(), name="api_generate_cover_letter"),
     path("jobs/<int:job_id>/generate-template-cover-letter/", GenerateTemplateCoverLetter.as_view(), name="api_generate_template_cover_letter"),
 

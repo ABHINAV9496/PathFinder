@@ -8,9 +8,10 @@ from apps.jobs.matcher import match_all_jobs
 from apps.jobs.services import (
     enrich_jobs_with_emails, is_company_email,
     bulk_save_jobs, update_daily_stats, job_exists,
+    save_web_apply,
 )
 from common.utils import safe_console
-from apps.jobs.models import Application
+from apps.jobs.models import Application, Job
 from config.settings import MATCH_THRESHOLD_APPLY, DASHBOARD_MIN_SCORE_TRACK
 
 
@@ -100,6 +101,9 @@ class Command(BaseCommand):
                 has_email += 1
             elif job_data["match_score"] >= DASHBOARD_MIN_SCORE_TRACK:
                 no_email += 1
+                job_obj = Job.objects.filter(uid=job_data["uid"]).first()
+                if job_obj:
+                    save_web_apply(job_obj, job_data)
 
             matched += 1
 
