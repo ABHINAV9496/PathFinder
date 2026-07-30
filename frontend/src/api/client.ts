@@ -17,8 +17,13 @@ export const api = {
     detail(id: number): Promise<JobDetail> {
       return get(`/jobs/${id}/`);
     },
-    apply(id: number): Promise<Record<string, unknown>> {
-      return fetch(`${BASE}/jobs/${id}/apply/`, { method: "POST" }).then((r) => {
+    apply(id: number, coverLetterText?: string): Promise<Record<string, unknown>> {
+      const body = coverLetterText ? JSON.stringify({ cover_letter_text: coverLetterText }) : undefined;
+      return fetch(`${BASE}/jobs/${id}/apply/`, {
+        method: "POST",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body,
+      }).then((r) => {
         if (!r.ok) throw new Error(`API error: ${r.status}`);
         return r.json();
       });
@@ -44,11 +49,14 @@ export const api = {
         return r.json();
       });
     },
-    tailoredApply(id: number, resumePdfBase64: string): Promise<{ success: boolean; message: string }> {
+    tailoredApply(id: number, resumePdfBase64: string, coverLetterText?: string): Promise<{ success: boolean; message: string }> {
       return fetch(`${BASE}/jobs/${id}/tailored-apply/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resume_pdf_base64: resumePdfBase64 }),
+        body: JSON.stringify({
+          resume_pdf_base64: resumePdfBase64,
+          ...(coverLetterText ? { cover_letter_text: coverLetterText } : {}),
+        }),
       }).then((r) => {
         if (!r.ok) return r.json().then((d) => { throw new Error(d.detail || d.error || `API error: ${r.status}`); });
         return r.json();

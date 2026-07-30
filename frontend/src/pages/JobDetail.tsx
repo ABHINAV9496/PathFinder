@@ -64,6 +64,7 @@ export default function JobDetail() {
   const [cvError, setCvError] = useState<string | null>(null);
   const [applyingTailored, setApplyingTailored] = useState(false);
   const [tailoredApplyResult, setTailoredApplyResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [coverLetterText, setCoverLetterText] = useState<string>("");
 
   useEffect(() => {
     if (!id) return;
@@ -82,9 +83,11 @@ export default function JobDetail() {
     }).catch(() => setAtsLoading(false));
   }, [id, job]);
 
+  const displayCoverLetter = job?.application?.cover_letter_text || coverLetterText;
+
   function copyCoverLetter() {
-    if (!job?.application?.cover_letter_text) return;
-    navigator.clipboard.writeText(job.application.cover_letter_text).then(() => {
+    if (!displayCoverLetter) return;
+    navigator.clipboard.writeText(displayCoverLetter).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -100,8 +103,11 @@ export default function JobDetail() {
         ...prev,
         application: prev.application
           ? { ...prev.application, cover_letter_text: res.cover_letter }
-          : { id: 0, job: prev, sent_at: "", status: "draft", email_subject: "", cover_letter_text: res.cover_letter, error_message: "", skills_highlighted: [], skills_in_job_desc: [], skill_match_pct: 0, criteria_data: {}, skill_gaps: [], match_explanation: "" },
+          : prev.application,
       } : prev);
+      if (!job.application) {
+        setCoverLetterText(res.cover_letter);
+      }
     } catch (e: any) {
       setGenerateError(e.message || "Failed to generate cover letter");
     }
@@ -115,7 +121,8 @@ export default function JobDetail() {
     setApplying(true);
     setApplyResult(null);
     try {
-      const res = await api.jobs.apply(job.id) as any;
+      const cl = (job.application?.cover_letter_text || coverLetterText) || undefined;
+      const res = await api.jobs.apply(job.id, cl) as any;
       if (res.success) {
         setApplyResult({ type: "success", msg: res.message || "Application sent!" });
         setJob((prev) => prev ? {
@@ -147,8 +154,11 @@ export default function JobDetail() {
         ...prev,
         application: prev.application
           ? { ...prev.application, cover_letter_text: res.cover_letter }
-          : { id: 0, job: prev, sent_at: "", status: "draft", email_subject: "", cover_letter_text: res.cover_letter, error_message: "", skills_highlighted: [], skills_in_job_desc: [], skill_match_pct: 0, criteria_data: {}, skill_gaps: [], match_explanation: "" },
+          : prev.application,
       } : prev);
+      if (!job.application) {
+        setCoverLetterText(res.cover_letter);
+      }
     } catch (e: any) {
       setTemplateClError(e.message || "Failed to generate cover letter");
     }
@@ -176,7 +186,8 @@ export default function JobDetail() {
     setApplyingTailored(true);
     setTailoredApplyResult(null);
     try {
-      const res = await api.jobs.tailoredApply(job.id, tailoredPdfBase64);
+      const cl = (job.application?.cover_letter_text || coverLetterText) || undefined;
+      const res = await api.jobs.tailoredApply(job.id, tailoredPdfBase64, cl);
       if (res.success) {
         setTailoredApplyResult({ type: "success", msg: res.message || "Application sent with tailored CV!" });
         setJob((prev) => prev ? {
@@ -680,7 +691,7 @@ export default function JobDetail() {
           </div>
         )}
 
-        {app?.cover_letter_text ? (
+        {displayCoverLetter ? (
           <div className="jd-cover">
             <div className="jd-cover-actions">
               <button className="jd-cover-toggle" onClick={copyCoverLetter}>
@@ -743,7 +754,7 @@ export default function JobDetail() {
                 )}
               </button>
             </div>
-            <pre className="jd-cover-text">{app.cover_letter_text}</pre>
+            <pre className="jd-cover-text">{displayCoverLetter}</pre>
           </div>
         ) : (
           <div className="jd-cover-empty">
