@@ -37,18 +37,10 @@ JOBDROP_QUERIES = [
 ]
 
 JOBDROP_SOURCES = [
-    "google",
-    "zip_recruiter",
-    "wellfound",
     "adzuna",
     "jooble",
     "findwork",
     "the_muse",
-    "greenhouse",
-    "lever",
-    "workday",
-    "ashby",
     "remoteok",
     "weworkremotely",
-    "naukri",
 ]

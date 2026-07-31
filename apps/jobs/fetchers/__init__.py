@@ -9,7 +9,7 @@ from apps.jobs.fetchers.jobdrop_fetcher import fetch_jobdrop_jobs
 from apps.jobs.fetchers.technopark import fetch_technopark_jobs
 from apps.jobs.services import _extract_salary_from_text
 from common.utils import make_uid
-from config.queries import SEARCH_QUERIES
+from apps.jobs.query_builder import get_search_queries, get_technopark_queries
 from config.settings import FEED_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -161,10 +161,14 @@ def _fetch_single_rss_query(query: dict) -> list[dict]:
 
 
 def fetch_rss_jobs() -> list[dict]:
+    queries = get_search_queries()
+    if not queries:
+        return []
+
     all_jobs = []
     seen_uids = set()
 
-    with ThreadPoolExecutor(max_workers=len(SEARCH_QUERIES)) as pool:
+    with ThreadPoolExecutor(max_workers=len(queries)) as pool:
         futures = {pool.submit(_fetch_single_rss_query, q): q for q in SEARCH_QUERIES}
         for future in as_completed(futures):
             try:
@@ -194,12 +198,19 @@ def fetch_all_jobs() -> tuple[list[dict], dict]:
     source_stats = {}
     failed_sources = []
 
+    futures_map = {
+        "rss": (_safe_fetch, "RSS", fetch_rss_jobs),
+        "cutshort": (_safe_fetch, "Cutshort", fetch_cutshort_jobs),
+        "jobdrop": (_safe_fetch, "Jobdrop", fetch_jobdrop_jobs),
+    }
+
+    if get_technopark_queries():
+        futures_map["technopark"] = (_safe_fetch, "Technopark", fetch_technopark_jobs)
+
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {
-            pool.submit(_safe_fetch, "RSS", fetch_rss_jobs): "rss",
-            pool.submit(_safe_fetch, "Technopark", fetch_technopark_jobs): "technopark",
-            pool.submit(_safe_fetch, "Cutshort", fetch_cutshort_jobs): "cutshort",
-            pool.submit(_safe_fetch, "Jobdrop", fetch_jobdrop_jobs): "jobdrop",
+            pool.submit(func, name, fn): source
+            for source, (func, name, fn) in futures_map.items()
         }
 
         for future in as_completed(futures):

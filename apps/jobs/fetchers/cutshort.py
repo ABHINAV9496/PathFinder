@@ -6,9 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import httpx
 from bs4 import BeautifulSoup
 
-from config.queries import CUTSHORT_SEARCH_URLS
 from common.utils import make_uid, html_to_markdown
 from apps.jobs.services import _extract_salary_from_text
+from apps.jobs.query_builder import get_cutshort_urls
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def _extract_next_data(html: str) -> dict | None:
 
 def _parse_job(job: dict) -> dict | None:
     title = job.get("headline", "").strip()
-    company_data = job.get("companyDetails", {})
+    company_data = job.get("companyDetails") or {}
     company = company_data.get("name", "").strip()
 
     if not title or not company:
@@ -37,10 +37,10 @@ def _parse_job(job: dict) -> dict | None:
 
     uid = make_uid(title, company)
 
-    location_list = job.get("locations", [])
+    location_list = job.get("locations") or []
     location = ", ".join(location_list) if location_list else "Not specified"
 
-    salary_data = job.get("salaryRange", {})
+    salary_data = job.get("salaryRange") or {}
     min_salary = salary_data.get("min", 0)
     max_salary = salary_data.get("max", 0)
 
@@ -51,18 +51,18 @@ def _parse_job(job: dict) -> dict | None:
     else:
         salary_display = ""
 
-    exp_data = job.get("expRange", {})
+    exp_data = job.get("expRange") or {}
     min_exp = exp_data.get("min", 0)
     max_exp = exp_data.get("max", 0)
 
     description_html = job.get("sanitizedComment", "")
     description = html_to_markdown(description_html)
 
-    salary = salary_data.get("max", 0) if salary_data else 0
+    salary = salary_data.get("max", 0)
     if not salary:
         salary, salary_display = _extract_salary_from_text(f"{title} {description}")
 
-    skills = job.get("allSkills", [])
+    skills = job.get("allSkills") or []
 
     apply_url = job.get("publicUrl", "")
 
@@ -112,15 +112,13 @@ def _fetch_single_url(url: str) -> list[dict]:
 
         data = _extract_next_data(resp.text)
         if not data:
-            logger.warning(f"  No __NEXT_DATA__ found")
+            logger.warning("  No __NEXT_DATA__ found")
             return jobs
 
-        queries = (
-            data.get("props", {})
-            .get("pageProps", {})
-            .get("dehydratedState", {})
-            .get("queries", [])
-        )
+        props = data.get("props") or {}
+        page_props = props.get("pageProps") or {}
+        dehydrated = page_props.get("dehydratedState") or {}
+        queries = dehydrated.get("queries") or []
 
         for query in queries:
             state = query.get("state") or {}
@@ -144,11 +142,15 @@ def _fetch_single_url(url: str) -> list[dict]:
 
 
 def fetch_cutshort_jobs() -> list[dict]:
+    urls = get_cutshort_urls()
+    if not urls:
+        return []
+
     all_jobs = []
     seen_uids = set()
 
-    with ThreadPoolExecutor(max_workers=min(len(CUTSHORT_SEARCH_URLS), 6)) as pool:
-        futures = {pool.submit(_fetch_single_url, url): url for url in CUTSHORT_SEARCH_URLS}
+    with ThreadPoolExecutor(max_workers=min(len(urls), 6)) as pool:
+        futures = {pool.submit(_fetch_single_url, url): url for url in urls}
         for future in as_completed(futures):
             try:
                 for job in future.result():
