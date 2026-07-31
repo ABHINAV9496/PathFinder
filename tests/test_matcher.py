@@ -1,5 +1,4 @@
-import pytest
-from apps.jobs.matcher import match_job, match_all_jobs
+from apps.jobs.matcher import classify_jd_keywords, match_all_jobs, match_job
 
 
 class TestMatchJob:
@@ -36,6 +35,36 @@ class TestMatchJob:
         }
         result = match_job(job)
         assert "match_score" in result
+
+    def test_tier_gate_rejects_when_required_skills_unmet(self):
+        job = {
+            "title": "Go Engineer",
+            "company": "BigCorp",
+            "location": "Remote India",
+            "description": (
+                "We require strong Go experience. Must have Go and gRPC. "
+                "Go and gRPC are mandatory."
+            ),
+            "uid": "test-uid-004",
+        }
+        result = match_job(job)
+        assert result["match_score"] == 0
+        assert result["status"] == "ignored"
+        assert "Missing required skills" in result.get("filter_reason", "")
+
+
+class TestClassifyJdKeywords:
+    def test_classifies_must_have_as_tier0(self):
+        tiers = classify_jd_keywords("We require Python and Django. Django is mandatory.")
+        assert "python" in tiers["tier0"] or "django" in tiers["tier0"]
+
+    def test_classifies_nice_to_have_as_tier5(self):
+        tiers = classify_jd_keywords("Docker is a nice to have. Git preferred.")
+        assert "docker" in tiers["tier5"] or "git" in tiers["tier5"]
+
+    def test_classifies_profile_skills_as_tier1(self):
+        tiers = classify_jd_keywords("Looking for a developer with Django and FastAPI.")
+        assert any(t in tiers["tier1"] for t in ("django", "fastapi"))
 
 
 class TestMatchAllJobs:
