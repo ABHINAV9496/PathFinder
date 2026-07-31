@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+
 import httpx
 from django.conf import settings
 
@@ -19,7 +20,7 @@ def _get_client():
     )
 
 
-def generate_cv(job: dict, profile: dict, company_context: dict = None) -> tuple[bytes, str, bool]:
+def generate_cv(job: dict, profile: dict, company_context: dict = None) -> dict:
     try:
         with _get_client() as client:
             payload = {"job": job, "profile": profile}
@@ -28,8 +29,8 @@ def generate_cv(job: dict, profile: dict, company_context: dict = None) -> tuple
             response = client.post("/v1/generate-cv", json=payload)
             response.raise_for_status()
             data = response.json()
-            pdf_bytes = base64.b64decode(data["pdf_base64"])
-            return pdf_bytes, data.get("filename", "Resume.pdf"), True
+            data["pdf_bytes"] = base64.b64decode(data["pdf_base64"])
+            return data
     except httpx.ConnectError:
         logger.warning("CV engine unavailable")
         raise CVEngineUnavailableError("CV engine service is not running")
@@ -38,13 +39,13 @@ def generate_cv(job: dict, profile: dict, company_context: dict = None) -> tuple
         raise CVEngineUnavailableError(str(e))
 
 
-def get_ats_score(job: dict, profile: dict) -> dict:
+def get_ats_score(job: dict, profile: dict, ai_config: dict = None) -> dict:
     try:
         with _get_client() as client:
-            response = client.post("/v1/tailor", json={
-                "job": job,
-                "profile": profile,
-            })
+            payload = {"job": job, "profile": profile}
+            if ai_config:
+                payload["ai_config"] = ai_config
+            response = client.post("/v1/tailor", json=payload)
             response.raise_for_status()
             return response.json()
     except httpx.ConnectError:
@@ -73,9 +74,16 @@ def enrich_company(company: str, apply_url: str = "") -> dict:
         return {}
 
 
+_enrich_cache: dict[str, tuple[dict, str]] = {}
+
 def enrich_company_with_ai(company: str, job_description: str,
                            api_key: str, api_base_url: str,
                            model: str, provider: str = "") -> dict:
+    cache_key = f"{company}|{api_base_url}|{model}"
+    cached = _enrich_cache.get(cache_key)
+    if cached and cached[1] == job_description[:1000]:
+        return cached[0]
+
     system_prompt = (
         "You are an ATS resume optimization expert. Given a company name and job description, "
         "extract structured data to help tailor a resume. "
@@ -96,7 +104,7 @@ def enrich_company_with_ai(company: str, job_description: str,
         "- Keep lists concise: max 6 items each"
     )
 
-    user_prompt = f"Company: {company}\n\nJob Description:\n{job_description[:3000]}"
+    user_prompt = f"Company: {company}\n\nJob Description:\n{job_description[:2000]}"
 
     try:
         import re
@@ -112,11 +120,11 @@ def enrich_company_with_ai(company: str, job_description: str,
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": 500,
+            "max_tokens": 300,
             "temperature": 0.3,
         }
 
-        resp = httpx.post(url, json=payload, headers=headers, timeout=15)
+        resp = httpx.post(url, json=payload, headers=headers, timeout=10)
         if resp.status_code != 200:
             logger.warning(f"LLM enrichment HTTP {resp.status_code} for {company}")
             return {}
@@ -148,6 +156,7 @@ def enrich_company_with_ai(company: str, job_description: str,
             "must_have_keywords": llm_data.get("must_have_keywords", []),
             "nice_to_have_keywords": llm_data.get("nice_to_have_keywords", []),
         }
+        _enrich_cache[cache_key] = (merged, job_description[:1000])
         logger.info(f"AI enrichment succeeded for {company}: {len(merged['must_have_keywords'])} must-have keywords")
         return merged
 

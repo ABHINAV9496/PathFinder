@@ -1,19 +1,50 @@
 import base64
+import html
 import io
-import json
 import logging
 import re
 
 from rest_framework import status
-from rest_framework.response import Response
 
+from apps.jobs.matcher import _extract_experience_years
 from apps.jobs.models import Job
 from apps.jobs.models.cred_store import CredStore
 from apps.jobs.profile_manager import load_profile
-from apps.jobs.llm_client import generate_with_llm
 from apps.jobs.views.base import BaseAPIView
 
 logger = logging.getLogger(__name__)
+
+_SECTION_ALIASES = {
+    "professional summary": "summary",
+    "summary": "summary",
+    "technical skills": "skills",
+    "skills": "skills",
+    "professional experience": "experience",
+    "work experience": "experience",
+    "employment history": "experience",
+    "experience": "experience",
+    "projects": "projects",
+    "project": "projects",
+    "education": "education",
+    "academic qualifications": "education",
+}
+
+_CATEGORY_LABELS = {
+    "backend": "Backend",
+    "frontend": "Frontend",
+    "ai_llm": "AI / LLM",
+    "ai": "AI / LLM",
+    "cloud": "Cloud & Infra",
+    "cloud_infra": "Cloud & Infra",
+    "devops": "DevOps",
+    "devops_ci": "DevOps & CI/CD",
+    "tools": "Tools & CI/CD",
+}
+
+_HIGH_SEVERITY_GAPS = {
+    "kubernetes", "k8s", "terraform", "gcp", "google cloud", "azure",
+    "kafka", "rabbitmq", "microservices", "graphql", "mongodb",
+}
 
 
 def _extract_resume_text() -> str:
@@ -32,333 +63,540 @@ def _extract_resume_text() -> str:
         return ""
 
 
-def _format_profile_for_prompt(profile: dict) -> str:
-    lines = []
-    name = profile.get("name", "")
-    role = profile.get("role", "")
-    location = profile.get("location", "")
-    exp_years = profile.get("experience_years", "")
-    if name:
-        lines.append(f"Name: {name}")
-    if role:
-        lines.append(f"Current Role: {role}")
-    if location:
-        lines.append(f"Location: {location}")
-    if exp_years:
-        lines.append(f"Total Experience: {exp_years} year(s)")
+def _parse_resume_sections(text: str) -> dict:
+    """Parse the original resume PDF text into sections, preserving raw lines
+    verbatim so the tailored resume keeps the candidate's exact template."""
+    sections = {
+        "header": [],
+        "summary": [],
+        "skills": {},
+        "experience": [],
+        "projects": [],
+        "education": [],
+        "other": [],
+    }
+    current = None
+    header_done = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if lower in _SECTION_ALIASES:
+            current = _SECTION_ALIASES[lower]
+            header_done = True
+            continue
+        if current is None:
+            if not header_done and len(sections["header"]) < 4:
+                sections["header"].append(line)
+            continue
+        if current == "skills":
+            m = re.match(r"^([^:]+):\s*(.+)$", line)
+            if m:
+                cat = m.group(1).strip()
+                skills = [s.strip().rstrip(",") for s in m.group(2).split(",")]
+                skills = [s for s in skills if s]
+                if skills:
+                    sections["skills"].setdefault(cat, [])
+                    for s in skills:
+                        if s not in sections["skills"][cat]:
+                            sections["skills"][cat].append(s)
+            else:
+                sections["other"].append(line)
+        elif current == "summary":
+            sections["summary"].append(line)
+        elif current in ("experience", "projects", "education"):
+            sections[current].append(line)
+    return sections
 
-    lines.append("")
-    lines.append("--- Projects ---")
-    for p in profile.get("projects", []):
-        tech = ", ".join(p.get("tech", [])[:8])
-        lines.append(f"- {p['name']}: {p.get('description', '')}")
-        if tech:
-            lines.append(f"  Tech: {tech}")
 
-    lines.append("")
-    lines.append("--- Experience ---")
-    for e in profile.get("experience", []):
-        parts = [e.get("role", ""), "at", e.get("company", "")]
-        if e.get("duration"):
-            parts.append(f"({e['duration']})")
-        lines.append("- " + " ".join(parts))
-
-    lines.append("")
-    lines.append("--- Skills ---")
+def _profile_sections(profile: dict) -> dict:
+    sections = {
+        "header": [],
+        "summary": [],
+        "skills": {},
+        "experience": [],
+        "projects": [],
+        "education": [],
+        "other": [],
+    }
+    sections["header"] = [
+        profile.get("name", ""),
+        profile.get("role", ""),
+        " · ".join(filter(None, [
+            profile.get("location", ""),
+            profile.get("phone", ""),
+            profile.get("email", ""),
+        ])),
+        " · ".join(filter(None, ["GitHub", "LinkedIn", "Portfolio"])),
+    ]
+    sections["header"] = [h for h in sections["header"] if h]
     for cat, skills in profile.get("skills", {}).items():
         if skills:
+            label = _CATEGORY_LABELS.get(cat.lower(), cat.replace("_", " ").title())
+            sections["skills"][label] = list(skills)
+    for p in profile.get("projects", []):
+        sections["projects"].append(f"{p.get('name', '')} — {p.get('description', '')}")
+        tech = ", ".join(p.get("tech", [])[:10])
+        if tech:
+            sections["projects"].append(tech)
+        link = (p.get("link") or "").strip()
+        if link:
+            if "github.com" in link or "github.io" in link:
+                sections["projects"].append(f"GitHub: {link}")
+            else:
+                sections["projects"].append(f"Live: {link} GitHub")
+    for e in profile.get("experience", []):
+        role = e.get("role", "")
+        company = e.get("company", "")
+        loc = e.get("location", "")
+        dur = e.get("duration", "")
+        line = f"{role} at {company}" if company else role
+        if loc:
+            line += f", {loc}"
+        if dur:
+            line += f"    {dur}"
+        sections["experience"].append(line)
+        for h in e.get("highlights", []):
+            sections["experience"].append(f"\u2022 {h}")
+    if profile.get("education"):
+        sections["education"].append(profile["education"])
+    return sections
+
+
+def _enrich_sections(sections: dict, profile: dict) -> dict:
+    if not sections["skills"]:
+        for cat, skills in profile.get("skills", {}).items():
+            if skills:
+                label = _CATEGORY_LABELS.get(cat.lower(), cat.replace("_", " ").title())
+                sections["skills"][label] = list(skills)
+    if not sections["projects"]:
+        for p in profile.get("projects", []):
+            sections["projects"].append(f"{p.get('name', '')} — {p.get('description', '')}")
+            tech = ", ".join(p.get("tech", [])[:10])
+            if tech:
+                sections["projects"].append(tech)
+            link = (p.get("link") or "").strip()
+            if link:
+                if "github.com" in link or "github.io" in link:
+                    sections["projects"].append(f"GitHub: {link}")
+                else:
+                    sections["projects"].append(f"Live: {link} GitHub")
+    if not sections["experience"]:
+        for e in profile.get("experience", []):
+            role = e.get("role", "")
+            company = e.get("company", "")
+            loc = e.get("location", "")
+            dur = e.get("duration", "")
+            line = f"{role} at {company}" if company else role
+            if loc:
+                line += f", {loc}"
+            if dur:
+                line += f"    {dur}"
+            sections["experience"].append(line)
+            for h in e.get("highlights", []):
+                sections["experience"].append(f"\u2022 {h}")
+    if not sections["education"] and profile.get("education"):
+        sections["education"].append(profile["education"])
+    if not sections["header"] and profile.get("name"):
+        sections["header"] = [
+            profile.get("name", ""),
+            profile.get("role", ""),
+            " · ".join(filter(None, [
+                profile.get("location", ""),
+                profile.get("phone", ""),
+                profile.get("email", ""),
+            ])),
+            " · ".join(filter(None, ["GitHub", "LinkedIn", "Portfolio"])),
+        ]
+        sections["header"] = [h for h in sections["header"] if h]
+    return sections
+
+
+def _reorder_skills(skills_by_cat: dict, matched_skills: list) -> dict:
+    matched_lower = {s.lower() for s in (matched_skills or [])}
+
+    def rank(skill: str) -> tuple:
+        skill_lower = skill.lower()
+        for m in matched_lower:
+            if m in skill_lower or skill_lower in m:
+                return (0, skill_lower)
+        return (1, skill_lower)
+
+    ordered = {}
+    for cat, skills in skills_by_cat.items():
+        ordered[cat] = sorted(skills, key=rank)
+    return ordered
+
+
+_TITLE_KEYWORDS = (
+    "python", "backend", "frontend", "full-stack", "full stack", "fullstack",
+    "django", "developer", "engineer", "ai", "llm",
+)
+
+
+def _has_skills(profile: dict, *keywords: str) -> bool:
+    all_skills = " ".join(
+        s.lower()
+        for cat in profile.get("skills", {}).values()
+        for s in cat
+    )
+    return any(k in all_skills for k in keywords)
+
+
+def _choose_header_title(job, profile: dict) -> str:
+    """Pick a header title the candidate can legitimately claim for this job.
+
+    Never copies the JD title blindly: the chosen title must be backed by the
+    candidate's actual skills. Falls back to the profile role when nothing
+    is claimable."""
+    jd_title = (getattr(job, "title", "") or "").lower()
+    has_backend = _has_skills(profile, "python", "django", "drf", "fastapi", "flask", "sqlalchemy", "celery", "postgresql")
+    has_frontend = _has_skills(profile, "react", "react.js", "reactjs", "typescript", "tailwind", "vue", "javascript")
+    has_ai = _has_skills(profile, "llm", "groq", "openai", "langchain", "ai", "ast parsing")
+
+    fullstack = any(k in jd_title for k in ("full stack", "fullstack", "full-stack"))
+    backend = any(k in jd_title for k in ("backend", "back-end", "back end"))
+    frontend = any(k in jd_title for k in ("frontend", "front-end", "front end"))
+    python = "python" in jd_title
+    django = "django" in jd_title
+    ai = (
+        any(k in jd_title for k in ("llm", "genai", "generative", "openai", "groq"))
+        or " ai" in jd_title
+        or jd_title.startswith("ai")
+        or "ai/" in jd_title
+        or "/ai" in jd_title
+    )
+
+    if ai and has_ai:
+        title = "Python AI/LLM Developer" if python else "AI/LLM Developer"
+    elif fullstack and has_frontend and has_backend:
+        title = "Python Full-Stack Developer"
+    elif backend and has_backend:
+        title = "Python Backend Developer" if python else "Backend Developer"
+    elif django and has_backend:
+        title = "Django Developer"
+    elif frontend and has_frontend:
+        title = "Frontend Developer"
+    elif python and has_backend:
+        title = "Python Developer"
+    else:
+        title = profile.get("role") or "Python Full-Stack Developer"
+
+    if "engineer" in jd_title:
+        title = title.replace(" Developer", " Engineer")
+    return title
+
+
+def _build_summary(profile: dict, job, matched_skills: list) -> str:
+    role = _choose_header_title(job, profile) or getattr(job, "title", "") or "Software Developer"
+    years = profile.get("experience_years")
+    project = getattr(job, "relevant_project", None) or {}
+    strengths = ", ".join(matched_skills[:6]) if matched_skills else "Python web development"
+    parts = []
+    if years:
+        parts.append(
+            f"{role} with {years}+ year of hands-on experience designing, building "
+            "and shipping production-ready web applications and APIs."
+        )
+    else:
+        parts.append(
+            f"{role} focused on designing, building and shipping "
+            "production-ready web applications and APIs."
+        )
+    if project.get("description"):
+        parts.append(
+            f"Proven experience delivering {project.get('name', '')} "
+            f"({project['description']})."
+        )
+    parts.append(f"Core strengths include {strengths}.")
+    if job and getattr(job, "title", None) and getattr(job, "company", None):
+        parts.append(
+            f"Actively targeting the {job.title} role at {job.company}."
+        )
+    return " ".join(parts)
+
+
+def _build_tailored_text(sections: dict, profile: dict, job, matched_skills: list) -> str:
+    lines = []
+    header = sections.get("header") or []
+    header_title = _choose_header_title(job, profile)
+    if len(header) >= 2:
+        header_lines = [header[0], header_title] + header[2:]
+    else:
+        header_lines = list(header) + [header_title]
+    for h in header_lines[:4]:
+        lines.append(h)
+    lines.append("")
+    lines.append("PROFESSIONAL SUMMARY")
+    lines.append(_build_summary(profile, job, matched_skills))
+    lines.append("")
+    lines.append("TECHNICAL SKILLS")
+    for cat, skills in _reorder_skills(sections.get("skills", {}), matched_skills).items():
+        if skills:
             lines.append(f"{cat}: {', '.join(skills)}")
+    lines.append("")
+    if sections.get("experience"):
+        lines.append("PROFESSIONAL EXPERIENCE")
+        lines.extend(sections["experience"])
+        lines.append("")
+    if sections.get("projects"):
+        lines.append("PROJECTS")
+        lines.extend(sections["projects"])
+        lines.append("")
+    if sections.get("education"):
+        lines.append("EDUCATION")
+        lines.extend(sections["education"])
+    return "\n".join(lines).strip()
 
-    return "\n".join(lines)
 
+def _compute_ats_estimate(job, profile: dict, matched_skills: list, skill_gaps: list) -> dict:
+    matched_skills = matched_skills or []
+    skill_gaps = skill_gaps or []
+    total_keywords = len(matched_skills) + len(skill_gaps)
+    keyword_coverage = int(len(matched_skills) / total_keywords * 100) if total_keywords else 60
+    skills_match = keyword_coverage
 
-def _build_system_prompt() -> str:
-    return (
-        "You are a resume-tailoring engine. You receive THREE inputs and must treat "
-        "them with different levels of trust.\n"
-        "\n"
-        "## INPUTS\n"
-        "\n"
-        "1. original_resume (GROUND TRUTH — highest trust)\n"
-        "   The candidate's full unedited resume. Every fact used in the tailored "
-        "resume — employers, dates, tools, project details — must trace back to "
-        "this document. This is the only source that can supply candidate facts.\n"
-        "\n"
-        "2. job_fetcher_data (JD GROUND TRUTH — highest trust)\n"
-        "   The job description as scraped/fetched directly from the posting "
-        "(LinkedIn, company careers page, etc). Use this verbatim for role "
-        "title, required skills, responsibilities, and stated requirements "
-        "(years of experience, must-haves vs nice-to-haves).\n"
-        "\n"
-        "3. company_web_research (CONTEXTUAL SIGNAL — lower trust, must be labeled)\n"
-        "   AI-gathered info about the company: tech stack, recent funding/news, "
-        "engineering culture, product direction. This may be incomplete, outdated, "
-        "or inferred rather than confirmed. Use this ONLY to:\n"
-        "     - inform tone/terminology alignment (e.g. if research shows the "
-        "company is Kubernetes-heavy, prioritize the candidate's real K8s "
-        "experience higher in the resume)\n"
-        "     - flag additional gap context in the gap_report\n"
-        "   NEVER use company_web_research to justify inserting a skill, tool, or "
-        "qualification into the resume itself. It informs prioritization and "
-        "framing, not resume content. Resume content only ever comes from "
-        "original_resume.\n"
-        "\n"
-        "## TRUST HIERARCHY RULE\n"
-        "If company_web_research suggests something not confirmed by "
-        "job_fetcher_data or original_resume, treat it as a 'consider mentioning "
-        "in cover note' signal at most — never as resume fact. Cite in gap_report "
-        "as 'unverified — from web research' if relevant, so the candidate knows "
-        "it's not sourced from the actual posting.\n"
-        "\n"
-        "## THE CORE PROBLEM TO SOLVE\n"
-        "- NO FABRICATION: Every skill, date, employer, project detail, metric, "
-        "and technology in the tailored_resume must have a direct source in "
-        "original_resume. If original_resume does not mention it, do not include "
-        "it, even if company_web_research or job_fetcher_data suggest it would "
-        "be a good fit.\n"
-        "- GAP CLASSIFICATION: Categorize each gap between the candidate and the "
-        "job into one of three buckets:\n"
-        "  (a) confirmed_gap — skill/requirement is in job_fetcher_data and "
-        "verifiably absent from original_resume\n"
-        "  (b) research_flagged_gap — signal came from company_web_research only "
-        "and is not confirmed by job_fetcher_data or original_resume\n"
-        "  (c) not a gap — skill appears in original_resume even if under a "
-        "different name or category; resolve aliases before flagging\n"
-        "- HONEST SCORING: The ATS score must reflect genuine overlap between "
-        "original_resume and job_fetcher_data. Do not inflate scores to make the "
-        "candidate look stronger. A score of 60 with an honest breakdown is more "
-        "useful than a score of 85 with fabricated justification.\n"
-        "- SOURCE TRACE: Every substantive claim in the tailored_resume must be "
-        "traceable to a specific sentence or section in original_resume.\n"
-        "\n"
-        "## OUTPUT REQUIRED\n"
-        "You MUST respond with valid JSON only (no markdown, no code fences, no "
-        "explanatory text). The JSON must have exactly these keys:\n"
-        "\n"
-        "{\n"
-        '  "tailored_resume": "The full tailored resume text, rewritten to '
-        'emphasize the most relevant experience for this specific job. '
-        'Rewrite section ordering and emphasis but do not fabricate.",\n'
-        '  "ats_score_estimate": {\n'
-        '    "score": 0-100 integer,\n'
-        '    "breakdown": {\n'
-        '      "skills_match": 0-100,\n'
-        '      "experience_relevance": 0-100,\n'
-        '      "projects_alignment": 0-100,\n'
-        '      "keyword_coverage": 0-100\n'
-        "    },\n"
-        '    "summary": "1-2 sentence honest assessment"\n'
-        "  },\n"
-        '  "gap_report": {\n'
-        '    "confirmed_gaps": [\n'
-        '      {"item": "Kubernetes", "severity": "high|medium|low", '
-        '"detail": "Required in JD, absent from resume"}\n'
-        "    ],\n"
-        '    "research_flagged_gaps": [\n'
-        '      {"item": "Terraform", "severity": "medium", '
-        '"detail": "Mentioned in company blog but not in JD — unverified"}\n'
-        "    ]\n"
-        "  },\n"
-        '  "source_trace": [\n'
-        '    {"claim": "Built REST APIs with Django", '
-        '"source": "original_resume", "confirmed": true}\n'
-        "  ]\n"
-        "}\n"
-        "\n"
-        "RULES:\n"
-        "- Never let company_web_research leak into resume content as a "
-        "fabricated qualification. It is context for framing, not a data source "
-        "for facts.\n"
-        "- Every entry in source_trace must have confirmed=true. If any claim "
-        "cannot be confirmed from original_resume, remove it from the resume.\n"
-         "- KEEP THE TAILORED_RESUME under 600 words.\n"
-         "- Do not add a cover letter or salutation — this is a resume, not a "
-         "cover letter.\n"
-         "- Use plain text only, no markdown formatting in the resume text.\n"
-         "\n"
-         "## FORMAT PRESERVATION — MANDATORY\n"
-         "- Section headers must use exact Title Case as in the original resume: "
-         "'Professional Summary', 'Technical Skills', 'Projects', 'Experience', "
-         "'Education'. Do NOT use ALL CAPS. Do NOT invent new sections like "
-         "'Certifications', 'Availability', or 'Highlights'.\n"
-         "- Skill category names must be preserved exactly as they appear in the "
-         "original: 'Cloud & DevOps', 'AI & Tools'. Do not rename or rephrase them.\n"
-         "- Header block formatting must match the original:\n"
-         "    Line 1: Name in ALL CAPS (centered)\n"
-         "    Line 2: Title in Title Case (centered)\n"
-         "    Line 3: Contact line with pipe separators (centered) — "
-         "'City, State|email |phone'\n"
-         "    Line 4: URLs separated by pipes — 'LinkedIn |Portfolio |GitHub'\n"
-         "- Dates must appear right-aligned on the same line as their role or degree.\n"
-         "- 'Live Demo' links must appear right-aligned on the same line as the "
-         "project name.\n"
-         "- Location must appear right-aligned on the same line as the company name.\n"
-         "- Use '•' (bullet) characters for skill and description lists.\n"
-          "- The overall section ordering must be: Summary → Skills → Projects → "
-         "Experience → Education. Do not reorder or insert sections between them.\n"
-         "\n"
-         "## SPACING RULES — MANDATORY\n"
-         "- There must ALWAYS be a space between the role title and the date: "
-         "'Full Stack Developer Sep 2025' — never 'Full Stack DeveloperSep 2025'.\n"
-         "- There must ALWAYS be a space between the company name and location: "
-         "'Bridgeon Solutions Kozhikode' — never 'Bridgeon SolutionsKozhikode'.\n"
-         "- There must ALWAYS be a space after a comma: 'Technology, Ernakulam' — "
-         "never 'Technology,Ernakulam'.\n"
-         "- Skills line format: '�Languages:Python, JavaScript' — the bullet "
-         "is followed immediately by the category name and colon, then a single "
-         "space before each subsequent item.\n"
-         "- Education year: 'Engineering)2025' — no space before the year.\n"
-         "- Project name with Live Demo: there must be a space before 'Live Demo': "
-         "'Detector Live Demo'."
+    jd_text = f"{getattr(job, 'description', '') or ''} {getattr(job, 'full_text', '') or ''}"
+    required_years = _extract_experience_years(jd_text)
+    exp_years = profile.get("experience_years", 0) or 0
+    if required_years is None:
+        experience_relevance = 80
+    elif exp_years >= required_years:
+        experience_relevance = 85
+    elif exp_years + 1 >= required_years:
+        experience_relevance = 60
+    else:
+        experience_relevance = 40
+
+    project = getattr(job, "relevant_project", None)
+    if project:
+        projects_alignment = 85
+    elif matched_skills:
+        projects_alignment = min(60 + len(matched_skills) * 5, 85)
+    else:
+        projects_alignment = 40
+
+    title = _choose_header_title(job, profile)
+
+    def _norm(s: str) -> str:
+        return (
+            s.lower()
+            .replace("full-stack", "full stack")
+            .replace("fullstack", "full stack")
+            .replace("-", " ")
+        )
+
+    jd_title_norm = _norm(getattr(job, "title", "") or "")
+    title_norm = _norm(title)
+    title_terms = [t for t in _TITLE_KEYWORDS if t in jd_title_norm]
+    if title_terms:
+        title_match = int(
+            sum(1 for t in title_terms if t in title_norm)
+            / len(title_terms)
+            * 100
+        )
+    else:
+        title_match = 70
+
+    score = int(
+        0.25 * skills_match
+        + 0.2 * experience_relevance
+        + 0.2 * projects_alignment
+        + 0.2 * keyword_coverage
+        + 0.15 * title_match
     )
+    score = max(0, min(100, score))
+
+    return {
+        "score": score,
+        "breakdown": {
+            "skills_match": skills_match,
+            "experience_relevance": experience_relevance,
+            "projects_alignment": projects_alignment,
+            "keyword_coverage": keyword_coverage,
+            "title_match": title_match,
+        },
+        "summary": (
+            f"Header '{title}' matches the JD title ({title_match}% title match); "
+            f"skills match {skills_match}% of JD keywords; "
+            f"experience relevance {experience_relevance}%."
+        ),
+    }
 
 
-def _build_user_prompt(job, resume_text: str, profile: dict, company_research: dict) -> str:
-    matched_skills = ", ".join(job.matched_skills or []) or "None listed"
-    skill_gaps = ", ".join(job.skill_gaps or []) or "None identified"
-
-    research_lines = []
-    if company_research:
-        for key, val in company_research.items():
-            if isinstance(val, list):
-                research_lines.append(f"{key}: {', '.join(val)}")
-            elif val:
-                research_lines.append(f"{key}: {val}")
-    research_text = "\n".join(research_lines) if research_lines else "No additional research available."
-
-    return (
-        "## original_resume (GROUND TRUTH — highest trust)\n"
-        "Below is the candidate's full resume text extracted from their uploaded PDF, "
-        "followed by structured profile data from the system.\n"
-        "\n"
-        "### Resume PDF Text:\n"
-        f"{resume_text or '(No PDF resume uploaded — using structured profile data only)'}\n"
-        "\n"
-        "### Structured Profile Data:\n"
-        f"{_format_profile_for_prompt(profile)}\n"
-        "\n"
-        "## job_fetcher_data (JD GROUND TRUTH — highest trust)\n"
-        f"Company: {job.company}\n"
-        f"Title: {job.title}\n"
-        f"Location: {job.location or 'Not specified'}\n"
-        f"Apply URL: {job.apply_url or 'N/A'}\n"
-        f"Matched Skills: {matched_skills}\n"
-        f"Skill Gaps: {skill_gaps}\n"
-        f"Match Score: {job.match_score or 0}/100\n"
-        "\n"
-        "### Job Description:\n"
-        f"{(job.description or '')[:4000]}\n"
-        "\n"
-        "## company_web_research (CONTEXTUAL SIGNAL — lower trust)\n"
-        f"{research_text}\n"
-        "\n"
-        "Now produce the tailored resume as specified in the system prompt. "
-        "Output ONLY valid JSON."
-    )
+def _build_gap_report(skill_gaps: list) -> dict:
+    confirmed = []
+    for g in skill_gaps or []:
+        severity = "high" if g.lower() in _HIGH_SEVERITY_GAPS else "medium"
+        confirmed.append({
+            "item": g,
+            "severity": severity,
+            "detail": "Required in JD, absent from resume",
+        })
+    return {"confirmed_gaps": confirmed, "research_flagged_gaps": []}
 
 
-def _parse_llm_output(raw: str) -> dict:
-    cleaned = raw.strip()
-    json_match = re.search(r"\{[\s\S]*\}", cleaned)
-    if json_match:
-        candidate = json_match.group()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-    return {}
-
-
-def _validate_tailored_resume(data: dict, job, profile: dict, resume_text: str) -> list[str]:
-    issues = []
-    if not isinstance(data, dict):
-        issues.append("not_json_object")
-        return issues
-
-    if "tailored_resume" not in data or not isinstance(data.get("tailored_resume"), str) or not data["tailored_resume"].strip():
-        issues.append("missing_tailored_resume")
-
-    ats = data.get("ats_score_estimate", {})
-    if not isinstance(ats, dict):
-        issues.append("ats_score_not_object")
-    else:
-        score = ats.get("score")
-        if not isinstance(score, (int, float)) or score < 0 or score > 100:
-            issues.append("invalid_ats_score")
-
-    gap_report = data.get("gap_report", {})
-    if not isinstance(gap_report, dict):
-        issues.append("gap_report_not_object")
-    else:
-        confirmed = gap_report.get("confirmed_gaps", [])
-        if not isinstance(confirmed, list):
-            issues.append("confirmed_gaps_not_list")
-
-    source_trace = data.get("source_trace", [])
-    if not isinstance(source_trace, list):
-        issues.append("source_trace_not_list")
-    elif len(source_trace) == 0:
-        issues.append("empty_source_trace")
-    else:
-        for entry in source_trace:
-            if not entry.get("confirmed"):
-                issues.append("unconfirmed_claim_in_source_trace")
-
-    return issues
-
-
-_RESUME_SAMPLE_CLAIMS_PATTERNS = [
-    r"\b\d{2,}\s*%",
-    r"\b\d[\d,]*\.?\d*\s*[KkMmBb]",
-    r"\b(sub-?\d+|\d+\+?)\s*(ms|seconds?|minutes?|hours?)",
-]
-
-
-def _check_fabricated_numbers(text: str, profile_source: str) -> list[str]:
-    issues = []
-    source_lower = profile_source.lower()
-    for pattern in _RESUME_SAMPLE_CLAIMS_PATTERNS:
-        for match in re.finditer(pattern, text, re.IGNORECASE):
-            raw = match.group()
-            normalized = re.sub(r"\s+", "", raw.lower())
-            digit_part = re.sub(r"[^\d.]", "", raw)
-            if digit_part and digit_part not in source_lower and normalized not in source_lower:
-                issues.append(f"unverified_number:{raw.strip()}")
-    return issues
-
-
-_RESUME_SECTION_HEADERS = {
-    "professional summary", "technical skills", "projects",
-    "experience", "education",
-}
+def _build_source_trace(matched_skills: list) -> list:
+    trace = []
+    for s in matched_skills or []:
+        trace.append({
+            "claim": f"Proficient in {s}",
+            "source": "original_resume",
+            "confirmed": True,
+        })
+    return trace
 
 
 def _make_urls_clickable(text: str, url_map: dict) -> str:
-    labels = {"linkedin", "portfolio", "github"}
+    label_map = {
+        "github": "GitHub",
+        "linkedin": "LinkedIn",
+        "portfolio": "Portfolio",
+    }
     result = text
-    for label in labels:
-        url = url_map.get(label)
+    for key, display in label_map.items():
+        url = url_map.get(key)
         if url:
             result = re.sub(
-                re.escape(label.capitalize()),
-                f'<a href="{url}" target="_blank">{label.capitalize()}</a>',
+                re.escape(display),
+                f'<a href="{html.escape(url)}" target="_blank">{display}</a>',
                 result,
                 flags=re.IGNORECASE,
             )
     return result
 
 
-def _resume_to_html(text: str, profile: dict = None) -> str:
+def _parse_project_links(resume_text: str) -> dict:
+    """Extract project names and their Live/GitHub URLs from the original resume
+    text. Priority 1 for project link resolution."""
+    links = {}
+    in_projects = False
+    current = None
+    for raw in (resume_text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if lower == "projects":
+            in_projects = True
+            continue
+        if lower == "education":
+            break
+        if not in_projects:
+            continue
+        if line.startswith(("\u2022", "- ")):
+            continue
+        title_match = re.match(r"^(.+?)\s*[—–]\s*", line)
+        if title_match and "http" not in line:
+            candidate = title_match.group(1).strip()
+            if candidate and not candidate.lower().startswith(("stack", "live", "github")):
+                current = candidate
+                links.setdefault(current, {})
+                continue
+        if current is None:
+            continue
+        live = re.search(r"Live:\s*(https?://\S+)", line, re.IGNORECASE)
+        if live:
+            links[current]["live"] = live.group(1).strip().rstrip(".,;)")
+        github = re.search(r"GitHub:\s*(https?://\S+)", line, re.IGNORECASE)
+        if github:
+            links[current]["github"] = github.group(1).strip().rstrip(".,;)")
+        if "GitHub" in line and "github" not in links[current]:
+            links[current]["github"] = ""
+    return links
+
+
+def _build_project_url_map(resume_text: str, profile: dict) -> dict:
+    """Resolve each project's Live/GitHub URLs by priority:
+    1. URL present in the original resume text
+    2. Profile project 'link' field
+    3. Inferred from the profile GitHub username + project name
+    """
+    links = _parse_project_links(resume_text)
+    github_base = (profile.get("github") or "").rstrip("/")
+    profile_projects = {}
+    for p in profile.get("projects", []):
+        name = p.get("name", "").strip()
+        if name:
+            profile_projects[name.lower()] = p
+
+    for name, info in links.items():
+        if not info.get("github"):
+            pp = profile_projects.get(name.lower())
+            if pp and (pp.get("link") or "").strip():
+                link = pp["link"].strip()
+                if "github.com" in link or "github.io" in link:
+                    info["github"] = link
+                elif not info.get("live"):
+                    info["live"] = link
+        if not info.get("github") and github_base:
+            slug = re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-")
+            info["github"] = f"{github_base}/{slug}"
+
+    for p in profile.get("projects", []):
+        name = p.get("name", "").strip()
+        link_keys_lower = {k.lower() for k in links}
+        if not name or name.lower() in link_keys_lower:
+            continue
+        info = {"live": "", "github": ""}
+        link = (p.get("link") or "").strip()
+        if link:
+            if "github.com" in link or "github.io" in link:
+                info["github"] = link
+            else:
+                info["live"] = link
+        if not info["github"] and github_base:
+            slug = re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-")
+            info["github"] = f"{github_base}/{slug}"
+        links[name] = info
+    return links
+
+
+def _render_project_links(stripped: str, current_project: str, project_url_map: dict) -> str:
+    links = project_url_map.get(current_project, {}) if current_project else {}
+    parts = []
+    live = None
+    m = re.search(r"Live:\s*(https?://\S+)", stripped, re.IGNORECASE)
+    if m:
+        live = m.group(1).strip().rstrip(".,;)")
+    if not live and re.search(r"\bLive\b", stripped, re.IGNORECASE):
+        live = links.get("live")
+    if not live and "http" in stripped:
+        urls = re.findall(r"https?://\S+", stripped)
+        if urls:
+            live = urls[0].rstrip(".,;)")
+    if live:
+        parts.append(f'<a href="{html.escape(live)}">{html.escape("Live")}</a>')
+    github = None
+    m = re.search(r"GitHub:\s*(https?://\S+)", stripped, re.IGNORECASE)
+    if m:
+        github = m.group(1).strip().rstrip(".,;)")
+    if not github and re.search(r"\bGitHub\b", stripped):
+        github = links.get("github")
+    if github:
+        parts.append(f'<a href="{html.escape(github)}">{html.escape("GitHub")}</a>')
+    if not parts:
+        return ""
+    return " &nbsp;|&nbsp; ".join(parts)
+
+
+_RESUME_SECTION_HEADERS = {
+    "professional summary", "summary", "technical skills", "skills",
+    "projects", "experience", "work experience", "employment history",
+    "professional experience", "education",
+}
+
+
+def _resume_to_html(text: str, profile: dict = None, project_url_map: dict = None) -> str:
     lines = text.split("\n")
     html_parts = ['<div class="resume">']
     in_header = True
     header_count = 0
+    in_projects = False
+    current_project = None
+    project_url_map = project_url_map or {}
 
-    # Build URL map for clickable links
     url_map = {}
     if profile:
         if profile.get("linkedin"): url_map["linkedin"] = profile["linkedin"]
@@ -373,45 +611,65 @@ def _resume_to_html(text: str, profile: dict = None) -> str:
                 in_header = False
             continue
 
-        # Header block: first 1-4 non-empty lines (name, title, contact, urls)
         if in_header and header_count < 4:
+            rendered = _make_urls_clickable(stripped, url_map) if header_count >= 2 else stripped
             if header_count == 0:
-                html_parts.append(f'<div class="header-name">{stripped}</div>')
+                html_parts.append(f'<div class="header-name">{rendered}</div>')
             elif header_count == 1:
-                html_parts.append(f'<div class="header-title">{stripped}</div>')
+                html_parts.append(f'<div class="header-title">{rendered}</div>')
             elif header_count == 2:
-                html_parts.append(f'<div class="header-contact">{stripped}</div>')
+                html_parts.append(f'<div class="header-contact">{rendered}</div>')
             elif header_count == 3:
-                html_parts.append(f'<div class="header-urls">{_make_urls_clickable(stripped, url_map)}</div>')
+                html_parts.append(f'<div class="header-urls">{rendered}</div>')
             header_count += 1
             continue
 
-        # Section headers
         lower = stripped.lower()
         if lower in _RESUME_SECTION_HEADERS:
+            in_projects = (lower == "projects")
+            current_project = None
             html_parts.append(f'<h2 class="section-title">{stripped}</h2>')
             continue
 
-        # Bullet points
         if stripped.startswith("\u2022") or stripped.startswith("- "):
             content = stripped.lstrip("\u2022- ")
             html_parts.append(f'<div class="bullet"><span class="bullet-char">\u2022</span>{content}</div>')
             continue
 
-        # Line with "Live Demo" right-aligned
-        if "Live Demo" in stripped:
-            parts = stripped.rsplit("Live Demo", 1)
+        if in_projects:
+            title_match = re.match(r"^(.+?)\s*[—–]\s*", stripped)
+            if title_match and "http" not in stripped:
+                candidate = title_match.group(1).strip()
+                if candidate and not candidate.lower().startswith(("stack", "live", "github")):
+                    current_project = candidate
+
+            if re.search(r"https?://", stripped):
+                links_html = _render_project_links(stripped, current_project, project_url_map)
+                if links_html:
+                    html_parts.append(f'<div class="project-links">{links_html}</div>')
+                continue
+
+        standalone_link = None
+        if in_projects:
+            standalone_link = re.match(
+                r'^\s*(Live\s+Demo|GitHub(?:\s+Link)?|Demo(?:\s+Link)?)\s*$',
+                stripped, re.IGNORECASE
+            )
+        if standalone_link:
+            link_label = standalone_link.group(1)
+            href = "#"
+            links = project_url_map.get(current_project, {}) if current_project else {}
+            if "github" in link_label.lower():
+                href = links.get("github") or "#"
+            else:
+                href = links.get("live") or "#"
             html_parts.append(
-                f'<table class="two-col"><tr>'
-                f'<td class="left">{parts[0].strip()}</td>'
-                f'<td class="right"><a href="#">Live Demo</a></td>'
-                f'</tr></table>'
+                f'<div class="project-links"><a href="{html.escape(href)}">{link_label}</a></div>'
             )
             continue
 
-        # Line with a date range (e.g. "Sep 2025 – Present", "2025")
         date_match = re.search(r'(\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s*[–\-]\s*(Present|Current|\d{4})\b|\b\d{4}\s*[–\-]\s*(Present|Current|\d{4})\b|\b\w+\s+\d{4}\b)', stripped)
-        if date_match and ("Developer" in stripped or "Engineer" in stripped or "Intern" in stripped or "Bachelor" in stripped or "Master" in stripped or "Degree" in stripped):
+        if date_match and len(stripped) > len(date_match.group()) + 5:
             parts = stripped.rsplit(date_match.group(), 1)
             html_parts.append(
                 f'<table class="two-col"><tr>'
@@ -421,10 +679,12 @@ def _resume_to_html(text: str, profile: dict = None) -> str:
             )
             continue
 
-        # Line with a location after company name
-        if header_count >= 4 and ("Solutions" in stripped or "Technologies" in stripped or "Ltd" in stripped or "Inc" in stripped or "Tech" in stripped or "Digital" in stripped or "Labs" in stripped):
+        _COMPANY_SUFFIXES = {"Solutions", "Technologies", "Ltd", "Inc", "Tech", "Digital", "Labs", "Systems", "Software", "Group", "Corp", "LLC"}
+        if header_count >= 4:
             location_match = re.search(r'\s{3,}(\S.*)$', stripped)
             if not location_match:
+                location_match = re.search(r',\s*([A-Z][a-zA-Z\s]+)$', stripped)
+            if not location_match and any(suffix in stripped for suffix in _COMPANY_SUFFIXES):
                 location_match = re.search(r'[,]\s*(\w+.*)$', stripped)
             if location_match and location_match.group(1) and not any(c.isdigit() for c in location_match.group(1)[:3]):
                 parts = stripped.rsplit(location_match.group(1), 1)
@@ -436,7 +696,6 @@ def _resume_to_html(text: str, profile: dict = None) -> str:
                 )
                 continue
 
-        # Regular content line (tech stack, descriptions)
         html_parts.append(f'<div class="content-line">{stripped}</div>')
 
     html_parts.append("</div>")
@@ -447,8 +706,8 @@ def _resume_to_html(text: str, profile: dict = None) -> str:
         "@page{size:letter;margin:14pt 18pt;}"
         "body{margin:0;padding:0;font-family:Helvetica,Arial,sans-serif;font-size:8.5pt;color:#222;}"
         ".resume{width:100%;margin:16px auto;}"
-        ".header-name{text-align:center;font-size:13pt;font-weight:bold;margin-bottom:1px;}"
-        ".header-title{text-align:center;font-size:9.5pt;color:#444;margin-bottom:3px;}"
+        ".header-name{text-align:center;font-size:14pt;font-weight:bold;margin-bottom:1px;}"
+        ".header-title{text-align:center;font-size:11pt;font-weight:bold;color:#333;margin-bottom:3px;}"
         ".header-contact{text-align:center;font-size:7.5pt;color:#555;margin-bottom:1px;}"
         ".header-urls{text-align:center;font-size:7.5pt;color:#555;margin-bottom:4px;}"
         ".spacer{height:3px;}"
@@ -459,6 +718,8 @@ def _resume_to_html(text: str, profile: dict = None) -> str:
         "td.left{text-align:left;font-weight:bold;font-size:8.5pt;vertical-align:top;padding:0;}"
         "td.right{text-align:right;font-size:8pt;color:#555;vertical-align:top;padding:0;}"
         ".content-line{margin:0 0;font-size:8pt;line-height:1.25;}"
+        ".project-links{text-align:right;font-size:8pt;color:#2a5db0;margin:0 0 1px 0;}"
+        ".project-links a{color:#2a5db0;text-decoration:none;}"
         "</style>"
         "</head><body>"
         f"{''.join(html_parts)}"
@@ -466,8 +727,8 @@ def _resume_to_html(text: str, profile: dict = None) -> str:
     )
 
 
-def _generate_pdf(resume_text: str, profile: dict = None) -> bytes:
-    html = _resume_to_html(resume_text, profile)
+def _generate_pdf(resume_text: str, profile: dict = None, project_url_map: dict = None) -> bytes:
+    html = _resume_to_html(resume_text, profile, project_url_map)
     try:
         from xhtml2pdf import pisa
         pdf_buffer = io.BytesIO()
@@ -490,121 +751,93 @@ class GenerateCV(BaseAPIView):
         except Job.DoesNotExist:
             return self.error("Job not found", status.HTTP_404_NOT_FOUND)
 
-        from apps.jobs.models.ai_config import AIConfig
-        ai = AIConfig.load()
-        if not ai.has_ai_config:
+        profile = load_profile()
+        resume_text = _extract_resume_text()
+        profile["resume_text"] = resume_text
+
+        if not resume_text and not profile.get("skills") and not profile.get("experience") and not profile.get("projects"):
             return self.error(
-                "AI not configured. Set your API key in Profile > AI Settings.",
+                "No resume content found. Upload your resume PDF in Profile settings.",
                 status.HTTP_400_BAD_REQUEST,
             )
 
-        api_key = ai.get_api_key()
-        if not api_key:
-            return self.error(
-                "Could not decrypt API key. Please re-save your AI Settings.",
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        job_dict = {
+            "title": job.title or "",
+            "company": job.company or "",
+            "location": job.location or "",
+            "description": job.description or "",
+            "matched_skills": job.matched_skills or [],
+            "skill_gaps": job.skill_gaps or [],
+            "skill_score_breakdown": job.skill_score_breakdown or {},
+            "match_score": job.match_score or 0,
+            "relevant_project": getattr(job, "relevant_project", None),
+        }
 
-        profile = load_profile()
-        resume_text = _extract_resume_text()
-
-        company_research = {}
         try:
-            if job.company:
-                from apps.jobs.services.cv_engine_client import enrich_company_with_ai
-                company_research = enrich_company_with_ai(
-                    company=job.company,
-                    job_description=job.description or "",
-                    api_key=api_key,
-                    api_base_url=ai.api_base_url,
-                    model=ai.model_name,
-                    provider=ai.provider,
-                )
-                logger.info("AI enrichment for %s: %d keywords", job.company,
-                            len(company_research.get("must_have_keywords", [])))
-        except Exception as e:
-            logger.warning("AI enrichment failed for %s: %s", job.company, e)
+            from apps.jobs.services.cv_engine_client import CVEngineUnavailableError, generate_cv
+            result = generate_cv(job_dict, profile)
+            ats = result.get("ats_report") or {}
+            score_estimate = {
+                "score": ats.get("score"),
+                "breakdown": ats.get("breakdown") or {},
+                "summary": ats.get("summary") or "",
+            }
+            if ats.get("source") == "deterministic":
+                score_estimate["summary"] = ats.get("summary") or score_estimate["summary"]
+            return self.success({
+                "tailored_resume": result.get("tailored_resume", ""),
+                "ats_score_estimate": score_estimate,
+                "gap_report": result.get(
+                    "gap_report", {"confirmed_gaps": [], "research_flagged_gaps": []}
+                ),
+                "source_trace": result.get("source_trace", []),
+                "suggested_keywords": result.get("suggested_keywords", []),
+                "ats_report": ats,
+                "pdf_base64": result.get("pdf_base64", ""),
+                "filename": result.get("filename", "Resume.pdf"),
+            })
+        except CVEngineUnavailableError as e:
+            logger.warning("CV engine unavailable for job %d; using local fallback: %s", job_id, e)
 
-        system_prompt = _build_system_prompt()
-        user_prompt = _build_user_prompt(job, resume_text, profile, company_research)
+        matched_skills = job.matched_skills or []
+        skill_gaps = job.skill_gaps or []
+        if not matched_skills or not skill_gaps:
+            from apps.jobs.matcher import _find_matching_skills, _find_skill_gaps
+            jd_text = f"{job.title or ''} {job.description or ''}"
+            if not matched_skills:
+                matched_skills, _ = _find_matching_skills(jd_text)
+            if not skill_gaps:
+                skill_gaps = _find_skill_gaps(jd_text)
 
-        raw_output, llm_error = generate_with_llm(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            api_key=api_key,
-            api_base_url=ai.api_base_url,
-            model=ai.model_name,
-            provider=ai.provider,
-        )
+        if resume_text:
+            sections = _parse_resume_sections(resume_text)
+        else:
+            sections = _profile_sections(profile)
+        sections = _enrich_sections(sections, profile)
 
-        if not raw_output:
-            msg = f"AI generation failed: {llm_error}" if llm_error else "AI generation failed. Check your API key and model in AI Settings."
-            return self.error(msg, status.HTTP_502_BAD_GATEWAY)
-
-        parsed = _parse_llm_output(raw_output)
-        issues = _validate_tailored_resume(parsed, job, profile, resume_text)
-
-        profile_source_text = resume_text + " " + _format_profile_for_prompt(profile)
-        resume_body = parsed.get("tailored_resume", "")
-        if resume_body:
-            numeric_issues = _check_fabricated_numbers(resume_body, profile_source_text)
-            issues.extend(numeric_issues)
-
-        hard_issues = [i for i in issues if i not in ("missing_salutation", "signature_repaired")]
-
-        if hard_issues:
-            retry_prompt = (
-                f"Your previous attempt had these issues: "
-                f"{'; '.join(hard_issues)}. Fix each one. "
-                f"Ensure output is valid JSON with all required keys. "
-                f"Do not fabricate any data. Every claim must trace to the resume."
-            )
-            retry_system = system_prompt + "\n\n" + retry_prompt
-            retry_raw, retry_error = generate_with_llm(
-                system_prompt=retry_system,
-                user_prompt=user_prompt,
-                api_key=api_key,
-                api_base_url=ai.api_base_url,
-                model=ai.model_name,
-                provider=ai.provider,
+        if not sections["skills"] and not sections["experience"] and not sections["projects"]:
+            return self.error(
+                "No resume content found. Upload your resume PDF in Profile settings.",
+                status.HTTP_400_BAD_REQUEST,
             )
 
-            if retry_raw:
-                retry_parsed = _parse_llm_output(retry_raw)
-                retry_issues = _validate_tailored_resume(retry_parsed, job, profile, resume_text)
-                retry_body = retry_parsed.get("tailored_resume", "")
-                if retry_body:
-                    retry_numeric = _check_fabricated_numbers(retry_body, profile_source_text)
-                    retry_issues.extend(retry_numeric)
-                retry_hard = [i for i in retry_issues if i not in ("missing_salutation", "signature_repaired")]
+        tailored_text = _build_tailored_text(sections, profile, job, matched_skills)
+        project_url_map = _build_project_url_map(resume_text, profile)
+        ats_estimate = _compute_ats_estimate(job, profile, matched_skills, skill_gaps)
+        gap_report = _build_gap_report(skill_gaps)
+        source_trace = _build_source_trace(matched_skills)
 
-                if retry_hard:
-                    logger.warning(
-                        "Retry still has hard issues for job %d (%s): %s",
-                        job.id, job.company, "; ".join(retry_hard),
-                    )
-                    return Response(
-                        {
-                            "error": (
-                                "Resume tailoring had accuracy issues that could not be "
-                                f"auto-corrected: {'; '.join(retry_hard)}. Try again."
-                            ),
-                            "draft_with_warnings": retry_parsed,
-                        },
-                        status=status.HTTP_502_BAD_GATEWAY,
-                    )
-
-                parsed = retry_parsed
-                resume_body = parsed.get("tailored_resume", "")
-
-        # Generate PDF from the tailored resume text
-        pdf_bytes = _generate_pdf(resume_body, profile) if resume_body else b""
+        pdf_bytes = _generate_pdf(tailored_text, profile, project_url_map)
         pdf_base64_str = base64.b64encode(pdf_bytes).decode() if pdf_bytes else ""
 
         filename = f"{profile.get('name', 'Developer').replace(' ', '_')}.pdf"
 
         response_data = {
-            **parsed,
+            "tailored_resume": tailored_text,
+            "ats_score_estimate": ats_estimate,
+            "gap_report": gap_report,
+            "source_trace": source_trace,
+            "suggested_keywords": matched_skills,
             "pdf_base64": pdf_base64_str,
             "filename": filename,
         }
