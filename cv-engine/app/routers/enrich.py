@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
+
+from app.core.company_scraper import scrape_company_context
 from app.deps import verify_service_key
 from app.models.requests import EnrichRequest
-from app.core.company_scraper import scrape_company_context
 
 router = APIRouter(prefix="/v1", tags=["enrich"])
 

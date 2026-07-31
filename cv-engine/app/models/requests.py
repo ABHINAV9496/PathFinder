@@ -1,5 +1,5 @@
+
 from pydantic import BaseModel
-from typing import Optional
 
 
 class JobIn(BaseModel):
@@ -11,7 +11,7 @@ class JobIn(BaseModel):
     skill_gaps: list[str] = []
     skill_score_breakdown: dict = {}
     match_score: float = 0
-    relevant_project: Optional[dict] = None
+    relevant_project: dict | None = None
 
 
 class ProfileIn(BaseModel):
@@ -23,6 +23,9 @@ class ProfileIn(BaseModel):
     experience_min: int = 0
     experience_max: int = 2
     location: str = ""
+    country: str = ""
+    currency: str = ""
+    min_salary: int = 0
     github: str = ""
     linkedin: str = ""
     portfolio: str = ""
@@ -32,18 +35,23 @@ class ProfileIn(BaseModel):
     education: str = ""
     languages: list[str] = []
     looking_for: list[str] = []
+    excluded_roles: list[str] = []
+    excluded_locations: list[str] = []
+    resume_text: str = ""
 
 
 class CVRequest(BaseModel):
     job: JobIn
     profile: ProfileIn
-    company_context: Optional[dict] = None
+    company_context: dict | None = None
 
 
 class TailorRequest(BaseModel):
     job: JobIn
     profile: ProfileIn
-    company_context: Optional[dict] = None
+    company_context: dict | None = None
+    ai_config: dict | None = None
+    ats_prompt_version: str = "v3"
 
 
 class CoverLetterRequest(BaseModel):
