@@ -123,6 +123,11 @@ RESUME_PATH = BASE_DIR / os.getenv("RESUME_PATH", "resume/Your_Resume.pdf")
 CV_ENGINE_BASE_URL = os.getenv("CV_ENGINE_BASE_URL", "http://127.0.0.1:8001")
 CV_ENGINE_SERVICE_KEY = os.getenv("CV_ENGINE_SERVICE_KEY", "")
 
+# ── Cover Letter Engine (microservice) ─────────────────────────────
+
+COVER_LETTER_ENGINE_BASE_URL = os.getenv("COVER_LETTER_ENGINE_BASE_URL", "http://127.0.0.1:8002")
+COVER_LETTER_ENGINE_SERVICE_KEY = os.getenv("COVER_LETTER_ENGINE_SERVICE_KEY", "cover-letter-engine-dev-key")
+
 # ── Job Matching Thresholds ──────────────────────────────────────────
 
 MATCH_THRESHOLD_APPLY = 65

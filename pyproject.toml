@@ -43,7 +43,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
-testpaths = ["tests", "apps"]
+testpaths = ["tests", "apps", "cv-engine", "cover-letter-engine"]
 
 [tool.ruff]
 line-length = 100
