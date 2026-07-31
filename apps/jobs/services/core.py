@@ -15,16 +15,22 @@ from common.utils import is_company_email as _validate_company_email, EMAIL_REGE
 
 logger = logging.getLogger(__name__)
 
+CURRENCY_SYMBOLS = {
+    "INR": "₹",
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+}
+
 SALARY_PATTERNS = [
-    r"(?:upto|up\s*to|max|maximum|capped?\s*at)\s*[\u20b9\uffe0Rs\.]*\s*(\d[\d,]*)\s*(?:[-\u2013to]+\s*[\u20b9\uffe0Rs\.]*\s*(\d[\d,]*))?\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?)",
-    r"[\u20b9\uffe0Rs\.]+\s*(\d[\d,]*)\s*[-\u2013to]+\s*[\u20b9\uffe0Rs\.]*\s*(\d[\d,]*)\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly)?",
-    r"[\u20b9\uffe0Rs\.]+\s*(\d[\d,]*)\s*/?-?\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|k\b)",
-    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*[\u20b9\uffe0Rs\.INR]*\s*(\d[\d,]*)\s*[-\u2013to]+\s*(\d[\d,]*)\s*(?:lpa|lakhs?|k|per\s*month|pm|monthly)?",
-    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*[\u20b9\uffe0Rs\.INR]*\s*(\d[\d,]*)\s*(?:lpa|lakhs?|k|per\s*month|pm|monthly|per\s*annum|p\.?a\.?|/month)",
-    r"(\d[\d,]*)\s*[-\u2013to]+\s*(\d[\d,]*)\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?)",
-    r"(\d[\d,]*)\s*[-\u2013to]+\s*(\d[\d,]*)\s*(?:k|,?000)\s*(?:per\s*month|pm|monthly|/month)?",
-    r"(\d[\d,]*)\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?)",
-    r"(\d[\d,]*)\s*(?:k|,?000)\s*(?:per\s*month|pm|monthly|/month)",
+    r"(?:upto|up\s*to|max|maximum|capped\s*at)\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*)\s*(?:[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*))?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year|k)",
+    r"(?:[₹$€£]|Rs\.?|INR)\s*(\d[\d,]*)\s*[kK]?\s*[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year)?",
+    r"(?:[₹$€£]|Rs\.?|INR)\s*(\d[\d,]*)\s*/?-?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|k\b|\/yr|\/year)?",
+    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*(?:[₹$€£]|Rs\.?|INR|USD)?\s*(\d[\d,]*)\s*[kK]?\s*[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR|USD)?\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*month|pm|monthly|per\s*annum|p\.?a\.?|\/month|\/yr|\/year)?",
+    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*(?:[₹$€£]|Rs\.?|INR|USD)?\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*month|pm|monthly|per\s*annum|p\.?a\.?|\/month|\/yr|\/year)?",
+    r"(\d[\d,]*)\s*[kK]?\s*[-–—to]+\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year)?",
+    r"(\d[\d,]*)\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|k\b|\/yr|\/year)",
+    r"(\d[\d,]*)\s*(?:k|,?000)\s*(?:per\s*month|pm|monthly|\/month)",
 ]
 
 _SALARY_NEGATIVE = [
@@ -34,16 +40,51 @@ _SALARY_NEGATIVE = [
     "you pay", "candidate pays", "participant pays",
 ]
 
-
-def _format_salary(amount: int) -> str:
-    if amount >= 100000:
-        return f"\u20b9{amount // 100000}L PA"
-    elif amount >= 1000:
-        return f"\u20b9{amount // 1000}K"
-    return f"\u20b9{amount:,}"
+_ANNUAL_UNITS = {"lpa", "lakh", "lakhs", "per annum", "p.a.", "pa", "/yr", "/year"}
+_MONTHLY_UNITS = {"per month", "pm", "monthly", "/month"}
+_HOURLY_UNITS = {"per hour", "hr"}
 
 
-def _extract_salary_from_text(text: str) -> tuple[int, str]:
+def _format_salary(amount: int, currency: str = "INR") -> str:
+    symbol = CURRENCY_SYMBOLS.get(str(currency).upper(), str(currency))
+    if amount >= 100000 and str(currency).upper() == "INR":
+        return f"{symbol}{amount // 100000}L PA"
+    if amount >= 1000:
+        return f"{symbol}{amount // 1000}K"
+    return f"{symbol}{amount:,}"
+
+
+def _detect_currency(window: str) -> str:
+    if "€" in window or " eur" in window:
+        return "EUR"
+    if "£" in window or " gbp" in window:
+        return "GBP"
+    if "$" in window or "usd" in window:
+        return "USD"
+    return "INR"
+
+
+def _is_indian_salary(window: str) -> bool:
+    return "₹" in window or "inr" in window or "lpa" in window or "lakh" in window
+
+
+def _annualize(number: int, unit: str) -> int:
+    unit = (unit or "").strip().lower()
+    if "k" in unit:
+        number *= 1000
+        unit = unit.replace("k", "").strip()
+    if unit in _ANNUAL_UNITS:
+        if unit in {"lpa", "lakh", "lakhs"} and number < 100000:
+            number *= 100000
+        return number
+    if unit in _MONTHLY_UNITS:
+        return number * 12
+    if unit in _HOURLY_UNITS:
+        return number * 2080
+    return number
+
+
+def _extract_salary_from_text(text: str, min_salary: int = 0) -> tuple[int, str]:
     text_lower = text.lower()
 
     if any(w in text_lower for w in [
@@ -56,13 +97,15 @@ def _extract_salary_from_text(text: str) -> tuple[int, str]:
         for m in matches:
             groups = m.groups()
             numbers = []
+            unit = ""
             for g in groups:
-                if g:
-                    clean = g.replace(",", "").replace(" ", "")
-                    try:
-                        numbers.append(int(clean))
-                    except ValueError:
-                        pass
+                if not g:
+                    continue
+                clean = g.strip().replace(",", "").replace(" ", "")
+                if clean.isdigit():
+                    numbers.append(int(clean))
+                elif not unit:
+                    unit = g.strip().lower()
 
             if not numbers:
                 continue
@@ -75,29 +118,29 @@ def _extract_salary_from_text(text: str) -> tuple[int, str]:
             if any(neg in context for neg in _SALARY_NEGATIVE):
                 continue
 
-            has_annual_ctx = "lpa" in context or "lakhs" in context or "lakh" in context or "per annum" in context or "p.a." in context
-            has_monthly_ctx = "per month" in context or "pm" in context or "monthly" in context or "/month" in context
-            has_k_ctx = "k" in context and not has_annual_ctx
+            indian = _is_indian_salary(context)
+            if not unit:
+                if any(w in context for w in ("per hour", "per hr", "/hr", "hourly")):
+                    unit = "per hour"
+                elif any(w in context for w in ("per month", "/month", "monthly", " per mo")):
+                    unit = "per month"
+                elif any(w in context for w in ("per annum", "p.a.", "/yr", "/year")):
+                    unit = "per annum"
+                elif "k" in context:
+                    unit = "k"
 
-            if has_annual_ctx:
-                if salary < 100000:
-                    salary = salary * 100000
-            elif has_monthly_ctx:
-                if has_k_ctx:
-                    salary = salary * 1000
-                salary = salary * 12
-            elif has_k_ctx:
-                salary = salary * 1000
-            elif salary < 1000:
-                salary = salary * 1000
-            elif salary >= 1000 and salary < 100000:
-                salary = salary * 100000
+            if indian and not unit and 1000 <= salary < 100000:
+                salary *= 100000
+            else:
+                salary = _annualize(salary, unit)
 
             if salary > 50000000:
                 continue
 
-            if salary >= MIN_SALARY:
-                return salary, _format_salary(salary)
+            if min_salary and salary < min_salary:
+                continue
+
+            return salary, _format_salary(salary, _detect_currency(context))
 
     return 0, ""
 
