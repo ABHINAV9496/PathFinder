@@ -26,5 +26,8 @@ profile.json
 test_*.pdf
 tests/
 
+# Local database backups
+backups/
+
 # Uploaded files
 media/
