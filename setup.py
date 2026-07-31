@@ -9,10 +9,15 @@ What it does:
   2. Installs uv if missing (pip install uv)
   3. Installs Python dependencies  (uv sync)
   4. Copies .env.example -> .env   (if .env missing) + generates secret key
-  5. Copies config/profile.example.py -> config/profile.py  (if missing)
+  5. Creates profile.json from built-in defaults (if missing)
   6. Runs database migrations
   7. Installs frontend dependencies (npm install)
   8. Optionally starts both backend + frontend
+
+profile.json is the single source of truth for the job matcher and the
+CV Engine. It is created automatically with safe defaults, so the app
+boots with zero configuration. Edit it (or the /profile page) with your
+real info.
 """
 
 from __future__ import annotations
@@ -105,6 +110,8 @@ def install_python_deps() -> None:
     run(["uv", "sync", "--no-install-project"])
     info("Installing cv-engine dependencies...")
     run(["uv", "pip", "install", "-r", "requirements.txt"], cwd=ROOT / "cv-engine")
+    info("Installing cover-letter-engine dependencies...")
+    run(["uv", "pip", "install", "-r", "requirements.txt"], cwd=ROOT / "cover-letter-engine")
 
 
 def copy_env() -> None:
@@ -125,16 +132,18 @@ def copy_env() -> None:
     info("Edit .env to set EMAIL_USER / EMAIL_PASS for auto-apply")
 
 
-def copy_profile() -> None:
+def ensure_profile_json() -> None:
     banner("Candidate profile")
-    dst = ROOT / "config" / "profile.py"
-    if dst.exists():
-        info("config/profile.py already exists -- skipping")
+    try:
+        from apps.jobs.profile_manager import ensure_default_profile
+    except Exception as e:
+        fail(f"Could not create profile.json: {e}")
         return
-    src = ROOT / "config" / "profile.example.py"
-    shutil.copy2(src, dst)
-    ok("Copied profile.example.py -> config/profile.py")
-    info("Edit config/profile.py with your real info")
+    if ensure_default_profile():
+        ok("Created profile.json with default values")
+    else:
+        info("profile.json already exists -- skipping")
+    info("Edit profile.json (or use the /profile page) with your real info")
 
 
 def migrate() -> None:
@@ -159,7 +168,7 @@ def main() -> None:
 
     install_python_deps()
     copy_env()
-    copy_profile()
+    ensure_profile_json()
     migrate()
     install_frontend_deps()
 
@@ -186,16 +195,20 @@ def main() -> None:
       > Go to https://myaccount.google.com/apppasswords
       > Create one for "Mail" > "Other (Custom name)" > name it "JobbLoot"
 
-  Step 2 -- Edit your profile (config/profile.py)
+  Step 2 -- Edit your profile (profile.json)
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    Open config/profile.py and fill in:
+    profile.json was created with safe defaults. Open it and fill in:
 
       Your name, email, phone number
+      Your country + currency (INR / USD / EUR / GBP)
+      Your minimum expected salary (min_salary)
       Your skills (backend, frontend, cloud, etc.)
       Your projects (name, description, tech stack)
-      What jobs you are looking for
+      What jobs you are looking for (looking_for)
+      Roles to exclude (excluded_roles) or locations to skip (excluded_locations)
 
-    The matcher uses this to score jobs against your profile.
+    The matcher uses this to score jobs against your profile, for any
+    profession -- not just software development.
 
   Step 3 -- Start the app
   ~~~~~~~~~~~~~~~~~~~~~~~
@@ -227,11 +240,12 @@ def main() -> None:
 
 
 def run_app() -> None:
-    """Start Django backend + CV Engine + Vite frontend in parallel. Ctrl+C kills all."""
+    """Start Django backend + CV Engine + Cover Letter Engine + Vite frontend in parallel. Ctrl+C kills all."""
     banner("Starting JobbLoot")
-    print("  Backend    -> http://localhost:8000")
-    print("  CV Engine  -> http://localhost:8001")
-    print("  Frontend   -> http://localhost:5173")
+    print("  Backend            -> http://localhost:8000")
+    print("  CV Engine          -> http://localhost:8001")
+    print("  Cover Letter Eng   -> http://localhost:8002")
+    print("  Frontend           -> http://localhost:5173")
     print("  Press Ctrl+C to stop all.\n")
 
     backend = subprocess.Popen(
@@ -245,6 +259,12 @@ def run_app() -> None:
         cwd=ROOT / "cv-engine",
         shell=IS_WIN,
     )
+    cover_letter_engine = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "coverletter.main:app",
+         "--host", "0.0.0.0", "--port", "8002"],
+        cwd=ROOT / "cover-letter-engine",
+        shell=IS_WIN,
+    )
     frontend = subprocess.Popen(
         ["npm", "run", "dev"],
         cwd=ROOT / "frontend",
@@ -252,7 +272,7 @@ def run_app() -> None:
     )
 
     def shutdown(sig, frame):
-        for p in (frontend, cv_engine, backend):
+        for p in (frontend, cover_letter_engine, cv_engine, backend):
             try:
                 if IS_WIN:
                     subprocess.run(
