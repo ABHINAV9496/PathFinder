@@ -5,10 +5,11 @@ from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.response import Response
 
-from apps.jobs.models import AIConfig, Job, Application
 from apps.jobs.llm_client import generate_with_llm
-from apps.jobs.views.base import BaseAPIView
+from apps.jobs.models import AIConfig, Application, Job
 from apps.jobs.profile_manager import load_profile
+from apps.jobs.views.base import BaseAPIView
+from apps.jobs.views.generate_cv import _extract_resume_text
 
 logger = logging.getLogger(__name__)
 
@@ -375,6 +376,8 @@ def _check_requirement_coverage(job, letter: str) -> list[str]:
 _AGGREGATE_REFERENCES = {
     "both projects", "both codebases", "both platforms", "each project",
     "these projects", "all my projects", "across both", "both applications",
+    "across projects", "across all my", "in my work", "throughout my",
+    "on multiple", "in various", "my experience with", "my work on",
 }
 
 _ACRONYM_MAP = {
@@ -418,9 +421,11 @@ def _project_allowed_terms(project: dict) -> set[str]:
         allowed.add(t.lower())
         if t.lower() in _ACRONYM_MAP:
             allowed.add(_ACRONYM_MAP[t.lower()])
+    _STOP_WORDS_2 = {"is","in","at","by","to","an","on","of","or","as","it","be","we","us","no","my","up","if","do","so","go","he","she","me","am"}
     desc = project.get("description", "")
-    for word in re.findall(r'\b[a-zA-Z]{3,}\b', desc.lower()):
-        allowed.add(word)
+    for word in re.findall(r'\b[a-zA-Z]{2,}\b', desc.lower()):
+        if len(word) > 2 or word not in _STOP_WORDS_2:
+            allowed.add(word)
     # Acronym mappings for individual skills
     for cat_skills in _get_profile().get("skills", {}).values():
         for s in cat_skills:
@@ -698,16 +703,43 @@ def _validate_letter(letter: str, job) -> dict:
     return {"issues": issues, "repaired_letter": repaired}
 
 
+def _job_dict_with_ats(job, resume_text: str = "") -> dict:
+    """Build the job dict for the cover letter engine, enriched with the CV
+    engine's tier-derived missing keywords so the letter never claims skills
+    the ATS analysis flags as missing."""
+    job_dict = {
+        "id": job.id,
+        "company": job.company,
+        "title": job.title,
+        "location": job.location or "",
+        "description": job.description or "",
+        "matched_skills": job.matched_skills or [],
+        "skill_gaps": job.skill_gaps or [],
+    }
+    try:
+        from apps.jobs.services.cv_engine_client import get_ats_score
+        profile = _get_profile()
+        if resume_text:
+            profile["resume_text"] = resume_text
+        result = get_ats_score(job_dict, profile)
+        ats = result.get("ats") or {}
+        missing = ats.get("missing_keywords") or []
+        if missing:
+            job_dict["missing_keywords"] = missing
+    except Exception as e:
+        logger.debug(f"ATS report unavailable for cover letter job %d: %s", job.id, e)
+    return job_dict
+
+
 class GenerateCoverLetter(BaseAPIView):
     def post(self, request, job_id):
-        ai = AIConfig.load()
-        if not ai.has_ai_config:
-            return self.error(
-                "AI not configured. Set your API key in Profile > AI Settings.",
-                status.HTTP_400_BAD_REQUEST,
-            )
-
         job = get_object_or_404(Job.objects.select_related(), id=job_id)
+
+        ai = AIConfig.load()
+        if not ai.has_ai_config or not ai.get_api_key():
+            # No LLM configured: degrade to the deterministic template letter
+            # from the Cover Letter Engine (zero-config default).
+            return self._generate_template(job)
 
         api_key = ai.get_api_key()
         if not api_key:
@@ -715,6 +747,81 @@ class GenerateCoverLetter(BaseAPIView):
                 "Could not decrypt API key. Please re-save your AI Settings.",
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        try:
+            resume_text = _extract_resume_text()
+        except Exception:
+            resume_text = ""
+
+        job_dict = _job_dict_with_ats(job, resume_text)
+
+        from apps.jobs.services.cover_letter_client import (
+            CoverLetterEngineUnavailableError,
+        )
+        from apps.jobs.services.cover_letter_client import (
+            generate_cover_letter as engine_generate,
+        )
+
+        try:
+            result = engine_generate(
+                job_dict,
+                _get_profile(),
+                mode="ai",
+                resume_text=resume_text,
+                ai_config={
+                    "api_key": api_key,
+                    "api_base_url": ai.api_base_url,
+                    "model": ai.model_name,
+                    "provider": ai.provider,
+                },
+            )
+        except CoverLetterEngineUnavailableError:
+            logger.warning("Cover letter engine down for job %d; using local LLM flow", job.id)
+            return self._generate_locally(job, ai)
+
+        cover_letter = result.get("cover_letter", "")
+        if not cover_letter:
+            return self._generate_locally(job, ai)
+
+        existing_app = Application.objects.filter(job=job).first()
+        if existing_app:
+            existing_app.cover_letter_text = cover_letter
+            existing_app.save(update_fields=["cover_letter_text"])
+
+        return self.success({"cover_letter": cover_letter})
+
+    def _generate_template(self, job):
+        from apps.jobs.services.cover_letter_client import (
+            CoverLetterEngineUnavailableError,
+        )
+        from apps.jobs.services.cover_letter_client import (
+            generate_cover_letter as engine_generate,
+        )
+
+        job_dict = _job_dict_with_ats(job)
+
+        try:
+            result = engine_generate(job_dict, _get_profile(), mode="template")
+            cover_letter = result.get("cover_letter", "")
+        except CoverLetterEngineUnavailableError:
+            cover_letter = ""
+
+        if not cover_letter:
+            return self.error(
+                "AI not configured. Set your API key in Profile > AI Settings, or start "
+                "the cover letter service.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing_app = Application.objects.filter(job=job).first()
+        if existing_app:
+            existing_app.cover_letter_text = cover_letter
+            existing_app.save(update_fields=["cover_letter_text"])
+
+        return self.success({"cover_letter": cover_letter})
+
+    def _generate_locally(self, job, ai):
+        api_key = ai.get_api_key()
 
         system_prompt = _build_system_prompt()
         user_prompt = _build_user_prompt(job)
@@ -726,6 +833,8 @@ class GenerateCoverLetter(BaseAPIView):
             api_base_url=ai.api_base_url,
             model=ai.model_name,
             provider=ai.provider,
+            max_tokens=1000,
+            timeout=30.0,
         )
 
         if not cover_letter:
@@ -777,6 +886,8 @@ class GenerateCoverLetter(BaseAPIView):
                 api_base_url=ai.api_base_url,
                 model=ai.model_name,
                 provider=ai.provider,
+                max_tokens=1000,
+                timeout=30.0,
             )
 
             if retry_letter:

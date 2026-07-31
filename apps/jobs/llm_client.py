@@ -49,6 +49,7 @@ def _get_payload(
     model: str,
     *,
     reasoning_disabled: bool = False,
+    max_tokens: int = 2000,
 ) -> dict:
     payload = {
         "model": model,
@@ -56,7 +57,7 @@ def _get_payload(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "max_tokens": 4000,
+        "max_tokens": max_tokens,
         "temperature": 0.7,
     }
     if reasoning_disabled:
@@ -64,9 +65,9 @@ def _get_payload(
     return payload
 
 
-def _call_api(url: str, headers: dict, payload: dict) -> tuple[str, str] | tuple[None, str]:
+def _call_api(url: str, headers: dict, payload: dict, timeout: float = 30.0) -> tuple[str, str] | tuple[None, str]:
     try:
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=timeout) as client:
             resp = client.post(url, json=payload, headers=headers)
     except httpx.TimeoutException:
         return None, "timeout"
@@ -102,6 +103,8 @@ def generate_with_llm(
     model: str,
     *,
     provider: str = "",
+    max_tokens: int = 2000,
+    timeout: float = 30.0,
 ) -> tuple[str | None, str | None]:
     url = f"{api_base_url.rstrip('/')}/chat/completions"
     headers = {
@@ -116,41 +119,18 @@ def generate_with_llm(
 
     content, finish_reason = _call_api(
         url, headers,
-        _get_payload(system_prompt, user_prompt, model, reasoning_disabled=is_reasoning),
+        _get_payload(system_prompt, user_prompt, model, reasoning_disabled=is_reasoning, max_tokens=max_tokens),
+        timeout=timeout,
     )
 
-    if content:
-        letter = _strip_output_artifacts(_strip_think_tags(content))
-        if _is_usable(letter):
-            return letter, None
-        logger.warning(
-            "LLM output too short (finish_reason=%s, words=%d): %s",
-            finish_reason, len(letter.split()), letter[:200],
-        )
-    else:
-        logger.warning("LLM attempt 1 failed: %s", finish_reason)
-
-    if not content and ("413" in (finish_reason or "") or "429" in (finish_reason or "")):
+    if not content:
+        logger.warning("LLM generation failed: %s", finish_reason)
         return None, finish_reason
 
-    strict_system = system_prompt + (
-        "\n\nIMPORTANT: Output the final cover letter DIRECTLY. "
-        "No preamble, no analysis, no commentary."
-    )
-    content2, finish_reason2 = _call_api(
-        url, headers,
-        _get_payload(strict_system, user_prompt, model, reasoning_disabled=is_reasoning),
-    )
+    result = _strip_output_artifacts(_strip_think_tags(content))
+    if not _is_usable(result):
+        logger.warning("LLM output too short (finish_reason=%s, words=%d): %s",
+                       finish_reason, len(result.split()), result[:200])
+        return None, finish_reason or "output_too_short"
 
-    if content2:
-        letter2 = _strip_output_artifacts(_strip_think_tags(content2))
-        if _is_usable(letter2):
-            return letter2, None
-        logger.warning(
-            "LLM retry too short (finish_reason=%s, words=%d): %s",
-            finish_reason2, len(letter2.split()), letter2[:200],
-        )
-    else:
-        logger.warning("LLM attempt 2 failed: %s", finish_reason2)
-
-    return None, finish_reason2 or "unknown error"
+    return result, None
