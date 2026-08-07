@@ -228,7 +228,7 @@ class TestProfileFreshClone:
         profile = pm.load_profile()
         assert profile["name"] == ""
         assert profile["skills"] == {}
-        assert profile["currency"] == "USD"
+        assert profile["currency"] == ""
         assert profile["timezone"] == ""
 
     def test_ensure_default_profile_creates_file(self, monkeypatch, tmp_path):

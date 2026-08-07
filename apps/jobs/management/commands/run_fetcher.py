@@ -26,6 +26,18 @@ class Command(BaseCommand):
         start = time.time()
 
         raw_jobs, fetch_stats = fetch_all_jobs()
+
+        if fetch_stats.get("needs_profile"):
+            self.stdout.write(self.style.WARNING(
+                "  Fetch skipped: your profile is missing fields needed for "
+                f"searching: {', '.join(fetch_stats['missing'])}.\n"
+                "  Fill in your profile first, then re-run:\n"
+                "    - complete the onboarding wizard at http://localhost:5173\n"
+                "    - or run `python setup.py --profile`\n"
+                "    - or edit profile.json directly (set looking_for roles)"
+            ))
+            return
+
         self.stdout.write(self.style.SUCCESS(f"Fetched {len(raw_jobs)} raw jobs from all sources"))
 
         # Report per-source breakdown

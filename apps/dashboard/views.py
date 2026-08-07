@@ -3,13 +3,13 @@ import logging
 import threading
 from collections import Counter
 
-from django.http import JsonResponse
-from django.shortcuts import render, get_object_or_404
-from django.db.models import Count, Q, Avg
 from django.core.paginator import Paginator
+from django.db.models import Avg, Count, Q
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_POST
 
-from apps.jobs.models import Job, Application, SkillLog, DailyStats
+from apps.jobs.models import Application, DailyStats, Job, SkillLog
 from config.settings import DASHBOARD_PAGE_SIZE, DASHBOARD_STATS_DAYS, DEBUG
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,10 @@ def job_list(request):
     elif salary_filter == "10l":
         jobs = jobs.filter(salary__gte=1000000)
 
-    valid_sorts = ["-match_score", "match_score", "-fetched_date", "company", "title", "-salary", "salary"]
+    valid_sorts = [
+        "-match_score", "match_score", "-fetched_date",
+        "company", "title", "-salary", "salary",
+    ]
     if sort in valid_sorts:
         jobs = jobs.order_by(sort)
 
@@ -125,12 +128,24 @@ def job_list(request):
 
     active_chips = []
     if status_filter != "all":
-        active_chips.append({"label": f"Status: {status_filter.title()}", "param": "status", "value": status_filter})
+        active_chips.append({
+            "label": f"Status: {status_filter.title()}",
+            "param": "status", "value": status_filter,
+        })
     if location_filter != "all":
-        active_chips.append({"label": f"Location: {location_filter.title()}", "param": "location", "value": location_filter})
+        active_chips.append({
+            "label": f"Location: {location_filter.title()}",
+            "param": "location", "value": location_filter,
+        })
     if salary_filter != "all":
-        salary_labels = {"has": "Has Salary", "3l": "\u20b93L+ PA", "6l": "\u20b96L+ PA", "10l": "\u20b910L+ PA"}
-        active_chips.append({"label": f"Salary: {salary_labels.get(salary_filter, salary_filter)}", "param": "salary", "value": salary_filter})
+        salary_labels = {
+            "has": "Has Salary", "3l": "\u20b93L+ PA",
+            "6l": "\u20b96L+ PA", "10l": "\u20b910L+ PA",
+        }
+        active_chips.append({
+            "label": f"Salary: {salary_labels.get(salary_filter, salary_filter)}",
+            "param": "salary", "value": salary_filter,
+        })
 
     context = {
         "jobs": page_obj,
@@ -183,7 +198,10 @@ def application_list(request):
 
     active_chips = []
     if status_filter != "all":
-        active_chips.append({"label": f"Status: {status_filter.title()}", "param": "status", "value": status_filter})
+        active_chips.append({
+            "label": f"Status: {status_filter.title()}",
+            "param": "status", "value": status_filter,
+        })
 
     return render(request, "applications.html", {
         "applications": page_obj,
@@ -360,7 +378,11 @@ def profile_view(request):
             if isinstance(lang_raw, str):
                 profile["languages"] = [s.strip() for s in lang_raw.split(",") if s.strip()]
 
-            for field, default in [("experience_years", 1), ("experience_min", 0), ("experience_max", 3)]:
+            for field, default in [
+                ("experience_years", 1),
+                ("experience_min", 0),
+                ("experience_max", 3),
+            ]:
                 try:
                     profile[field] = int(profile.get(field, default))
                 except (ValueError, TypeError):
@@ -383,15 +405,24 @@ def _run_fetcher_background():
         from apps.jobs.fetchers import fetch_all_jobs
         from apps.jobs.matcher import match_all_jobs
         from apps.jobs.services import (
-            enrich_jobs_with_emails, is_company_email,
+            enrich_jobs_with_emails,
+            is_company_email,
             save_job,
-            update_daily_stats, job_exists,
+            update_daily_stats,
         )
         from config.settings import DASHBOARD_MIN_SCORE_TRACK
 
         _fetcher_running = True
 
         raw_jobs, fetch_stats = fetch_all_jobs()
+
+        if fetch_stats.get("needs_profile"):
+            logger.warning(
+                "Fetch skipped: profile missing %s (fill in your profile first)",
+                ", ".join(fetch_stats.get("missing", [])),
+            )
+            return
+
         matched_jobs = match_all_jobs(raw_jobs)
 
         already_applied_uids = set(

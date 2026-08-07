@@ -9,7 +9,7 @@ What it does:
   2. Installs uv if missing (pip install uv)
   3. Installs Python dependencies  (uv sync)
   4. Copies .env.example -> .env   (if .env missing) + generates secret key
-  5. Creates profile.json from built-in defaults (if missing)
+  5. Prompts for your profile (first run only)
   6. Runs the interactive profile wizard (first run only)
   7. Runs database migrations
   8. Installs frontend dependencies (npm install)
@@ -20,9 +20,9 @@ Flags:
   python setup.py --no-profile   Never run the wizard
 
 profile.json is the single source of truth for the job matcher and the
-CV Engine. It is created automatically with safe defaults, so the app
-boots with zero configuration. The wizard (or the /profile page) fills it
-in with your real info -- any profession, any country.
+CV Engine. It is created only when you fill in your real info through
+the wizard (or the /profile page) -- no dummy data, any profession, any
+country. Job fetching stays disabled until your profile is complete.
 """
 
 from __future__ import annotations
@@ -143,22 +143,19 @@ def copy_env() -> None:
     info("Edit .env to set EMAIL_USER / EMAIL_PASS for auto-apply")
 
 
-def ensure_profile_json() -> bool:
-    """Create profile.json with safe defaults when missing.
+def profile_configured() -> bool:
+    """True when the user already has a profile (profile.json or a legacy
+    ``config/profile.py`` PROFILE) -- i.e. this is not a fresh clone."""
+    from apps.jobs.profile_manager import PROFILE_JSON
 
-    Returns True when the file was created (a fresh install).
-    """
-    banner("Candidate profile")
-    try:
-        from apps.jobs.profile_manager import ensure_default_profile
-    except Exception as e:
-        fail(f"Could not create profile.json: {e}")
-        return False
-    if ensure_default_profile():
-        ok("Created profile.json with default values")
+    if PROFILE_JSON.exists():
         return True
-    info("profile.json already exists -- skipping")
-    return False
+    try:
+        from config import profile as legacy_profile
+
+        return isinstance(getattr(legacy_profile, "PROFILE", None), dict)
+    except ImportError:
+        return False
 
 
 # -- profile wizard -------------------------------------------------------------
@@ -233,8 +230,8 @@ def profile_wizard(force: bool = False) -> None:
     )
 
     print("\n  -- Salary / currency")
-    currency = _ask("Currency (INR / USD / EUR / GBP)", profile.get("currency", "USD"))
-    profile["currency"] = currency.upper() if currency else "USD"
+    currency = _ask("Currency (INR / USD / EUR / GBP)", profile.get("currency", ""))
+    profile["currency"] = currency.upper() if currency else ""
     profile["min_salary"] = _ask_int(
         f"Minimum monthly salary in {profile['currency']} (0 = no minimum)",
         profile.get("min_salary", 0) or 0,
@@ -309,8 +306,7 @@ def main() -> None:
 
     install_python_deps()
     copy_env()
-    profile_created = ensure_profile_json()
-    if not skip_profile and (force_profile or profile_created):
+    if not skip_profile and (force_profile or not profile_configured()):
         profile_wizard(force=force_profile)
     migrate()
     install_frontend_deps()
@@ -340,10 +336,11 @@ def main() -> None:
 
   Step 2 -- Your profile (profile.json)
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    If you skipped the profile wizard, run it anytime with:
+    profile.json is created only when you fill in your real info -- no
+    dummy data is pre-loaded. Use the wizard:
       > python setup.py --profile
 
-    Or edit profile.json directly, or use the /profile page. Fill in:
+    Or use the /profile page, or edit profile.json directly. Fill in:
 
       Your name, email, phone number
       Your profession + country + currency (INR / USD / EUR / GBP)

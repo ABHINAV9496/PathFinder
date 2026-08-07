@@ -65,11 +65,11 @@ DEFAULT_PROFILE = {
     "role": "",
     "experience_years": 0,
     "experience_min": 0,
-    "experience_max": 3,
+    "experience_max": 0,
     "location": "",
     "country": "",
     "timezone": "",
-    "currency": "USD",
+    "currency": "",
     "min_salary": 0,
     "github": "",
     "linkedin": "",
@@ -137,7 +137,7 @@ def load_profile() -> dict:
 
     if PROFILE_JSON.exists():
         try:
-            with open(PROFILE_JSON, "r", encoding="utf-8") as f:
+            with open(PROFILE_JSON, encoding="utf-8") as f:
                 data = json.load(f)
             if "PROFILE" in data:
                 data = data["PROFILE"]
