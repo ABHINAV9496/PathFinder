@@ -1,15 +1,21 @@
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 from bs4 import BeautifulSoup
 
+from apps.jobs.data_lake import land_source_jobs, write_manifest
 from apps.jobs.fetchers.cutshort import fetch_cutshort_jobs
 from apps.jobs.fetchers.jobdrop_fetcher import fetch_jobdrop_jobs
+from apps.jobs.fetchers.jobicy import fetch_jobicy_jobs
+from apps.jobs.fetchers.remoteok import fetch_remoteok_jobs
+from apps.jobs.fetchers.remotive import fetch_remotive_jobs
 from apps.jobs.fetchers.technopark import fetch_technopark_jobs
-from apps.jobs.services import _extract_salary_from_text
-from common.utils import make_uid
+from apps.jobs.models import RawJob
 from apps.jobs.query_builder import get_search_queries, get_technopark_queries
+from apps.jobs.services import _extract_salary_from_text
+from common.utils import deduplicate_jobs, make_uid
 from config.settings import FEED_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -169,7 +175,7 @@ def fetch_rss_jobs() -> list[dict]:
     seen_uids = set()
 
     with ThreadPoolExecutor(max_workers=len(queries)) as pool:
-        futures = {pool.submit(_fetch_single_rss_query, q): q for q in SEARCH_QUERIES}
+        futures = {pool.submit(_fetch_single_rss_query, q): q for q in queries}
         for future in as_completed(futures):
             try:
                 for job in future.result():
@@ -192,16 +198,37 @@ def _safe_fetch(name: str, func) -> list[dict]:
         return []
 
 
+def _company_bucket(company: str) -> str:
+    """Stable, coarse company key used to bucket jobs for fuzzy dedup."""
+    slug = re.sub(r"[^a-z0-9]", "", (company or "").lower())
+    return slug[:24]
+
+
+def _fuzzy_dedup(jobs: list[dict]) -> list[dict]:
+    """Cross-source fuzzy dedup, bucketed by company so it stays fast."""
+    buckets: dict[str, list[dict]] = {}
+    for job in jobs:
+        buckets.setdefault(_company_bucket(job.get("company", "")), []).append(job)
+    deduped = []
+    for bucket in buckets.values():
+        deduped.extend(deduplicate_jobs(bucket))
+    return deduped
+
+
 def fetch_all_jobs() -> tuple[list[dict], dict]:
     all_jobs = []
     seen_uids = set()
     source_stats = {}
     failed_sources = []
+    batch_id = RawJob.new_batch_id()
 
     futures_map = {
         "rss": (_safe_fetch, "RSS", fetch_rss_jobs),
         "cutshort": (_safe_fetch, "Cutshort", fetch_cutshort_jobs),
         "jobdrop": (_safe_fetch, "Jobdrop", fetch_jobdrop_jobs),
+        "remoteok": (_safe_fetch, "RemoteOK", fetch_remoteok_jobs),
+        "remotive": (_safe_fetch, "Remotive", fetch_remotive_jobs),
+        "jobicy": (_safe_fetch, "Jobicy", fetch_jobicy_jobs),
     }
 
     if get_technopark_queries():
@@ -224,17 +251,26 @@ def fetch_all_jobs() -> tuple[list[dict], dict]:
                     if job["uid"] not in seen_uids:
                         seen_uids.add(job["uid"])
                         all_jobs.append(job)
+                land_source_jobs(source, jobs, batch_id)
                 logger.info(f"  {source}: contributed {len(jobs)} jobs")
             except Exception as e:
                 source_stats[source] = 0
                 failed_sources.append(source)
                 logger.error(f"  {source} failed: {e}")
 
+    exact_count = len(all_jobs)
+    all_jobs = _fuzzy_dedup(all_jobs)
+    dups_removed = exact_count - len(all_jobs)
+
     stats = {
         "by_source": source_stats,
         "failed": failed_sources,
         "final": len(all_jobs),
+        "dups_removed": dups_removed,
+        "batch_id": batch_id,
     }
+
+    write_manifest(stats, batch_id)
 
     logger.info(f"Total: {len(all_jobs)} unique jobs | by source: {source_stats}")
     return all_jobs, stats

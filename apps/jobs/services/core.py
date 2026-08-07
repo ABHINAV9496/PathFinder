@@ -397,21 +397,34 @@ def save_web_apply(job: Job, result: dict) -> Application:
     return app
 
 
-def update_daily_stats():
+def update_daily_stats(
+    fetched: int | None = None,
+    matched: int | None = None,
+    applied: int | None = None,
+    ignored: int | None = None,
+    failed: int | None = None,
+):
     today = date.today()
     stats, _ = DailyStats.objects.get_or_create(date=today)
-    stats.total_fetched = RawJob.objects.filter(fetched_at__date=today).count()
+    stats.total_fetched = (
+        fetched if fetched is not None
+        else RawJob.objects.filter(fetched_at__date=today).count()
+    )
     stats.total_matched = (
-        JobEvent.objects.filter(event_type="matched", created_at__date=today).count()
+        matched if matched is not None
+        else JobEvent.objects.filter(event_type="matched", created_at__date=today).count()
     )
     stats.total_applied = (
-        Application.objects.filter(sent_at__date=today, status="sent").count()
+        applied if applied is not None
+        else Application.objects.filter(sent_at__date=today, status="sent").count()
     )
     stats.total_ignored = (
-        JobEvent.objects.filter(event_type="ignored", created_at__date=today).count()
+        ignored if ignored is not None
+        else JobEvent.objects.filter(event_type="ignored", created_at__date=today).count()
     )
     stats.total_failed = (
-        Application.objects.filter(sent_at__date=today, status="failed").count()
+        failed if failed is not None
+        else Application.objects.filter(sent_at__date=today, status="failed").count()
     )
 
     top_skills = (

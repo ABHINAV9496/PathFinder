@@ -34,6 +34,10 @@ PASSWORD_HASHERS = [
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
+# ── Data lake (off by default; lake/warehouse tests override to a tmp dir)
+
+DATA_LAKE_DIR = None
+
 # ── Logging (quiet during tests) ──────────────────────────────────────
 
 LOGGING = {}

@@ -10,11 +10,16 @@ import logging
 
 from apps.jobs.profile_manager import load_profile
 from config.queries import (
-    SEARCH_QUERIES as _DEFAULT_SEARCH_QUERIES,
-    TECHNOPARK_QUERIES as _DEFAULT_TECHNOPARK_QUERIES,
     CUTSHORT_SEARCH_URLS as _DEFAULT_CUTSHORT_URLS,
+)
+from config.queries import (
     JOBDROP_QUERIES as _DEFAULT_JOBDROP_QUERIES,
-    JOBDROP_SOURCES as _DEFAULT_JOBDROP_SOURCES,
+)
+from config.queries import (
+    SEARCH_QUERIES as _DEFAULT_SEARCH_QUERIES,
+)
+from config.queries import (
+    TECHNOPARK_QUERIES as _DEFAULT_TECHNOPARK_QUERIES,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,14 +29,34 @@ MAX_RSS_QUERIES = 12
 MAX_JOBDROP_QUERIES = 6
 MAX_CUTSHORT_URLS = 8
 
+# RemoteOK has a dedicated direct fetcher, so it is removed from the jobdrop
+# browser-free list (removes the biggest cross-source overlap).
 BROWSER_FREE_JOBDROP_SOURCES = [
     "adzuna",
     "jooble",
     "findwork",
     "the_muse",
-    "remoteok",
     "weworkremotely",
 ]
+
+INDIAN_METROS = [
+    "bangalore",
+    "chennai",
+    "hyderabad",
+    "pune",
+    "mumbai",
+    "delhi",
+    "kochi",
+    "trivandrum",
+    "kozhikode",
+]
+
+_INDIAN_HINTS = (
+    "india", "kerala", "bangalore", "bengaluru", "chennai", "hyderabad",
+    "pune", "mumbai", "delhi", "noida", "gurgaon", "gurugram", "kochi",
+    "trivandrum", "kozhikode", "tamil nadu", "tamilnadu", "karnataka",
+    "telangana", "maharashtra", "andhra",
+)
 
 
 def _roles(profile: dict) -> list[str]:
@@ -64,6 +89,13 @@ def _locations(profile: dict) -> list[str]:
     return locs
 
 
+def _is_india_profile(profile: dict, locations: list[str]) -> bool:
+    country = (profile.get("country") or "").lower()
+    if "india" in country:
+        return True
+    return any(hint in " ".join(locations) for hint in _INDIAN_HINTS)
+
+
 def get_search_queries() -> list[dict]:
     """RSS feed queries: role keywords x profile locations."""
     profile = load_profile()
@@ -72,8 +104,19 @@ def get_search_queries() -> list[dict]:
         return list(_DEFAULT_SEARCH_QUERIES)
 
     locations = _locations(profile)
+
+    # Widen India coverage: append metro cities to the location list. The
+    # cap below keeps len(locations) * len(roles) <= MAX_RSS_QUERIES.
+    if _is_india_profile(profile, locations):
+        for metro in INDIAN_METROS:
+            if metro not in locations:
+                locations.append(metro)
+
     if len(locations) * len(roles) > MAX_RSS_QUERIES:
-        roles = roles[: max(1, MAX_RSS_QUERIES // len(locations))]
+        if len(roles) > 2:
+            roles = roles[:2]
+        if len(locations) * len(roles) > MAX_RSS_QUERIES:
+            locations = locations[: max(1, MAX_RSS_QUERIES // max(len(roles), 1))]
 
     queries = []
     seen = set()
@@ -93,7 +136,10 @@ def get_technopark_queries() -> list[dict]:
     haystack = (
         f"{profile.get('country') or ''} {profile.get('location') or ''}".lower()
     )
-    if not any(kw in haystack for kw in ("kerala", "kozhikode", "technopark", "infopark", "trivandrum", "kochi", "campus")):
+    if not any(
+        kw in haystack
+        for kw in ("kerala", "kozhikode", "technopark", "infopark", "trivandrum", "kochi", "campus")
+    ):
         return []
     return list(_DEFAULT_TECHNOPARK_QUERIES)
 
@@ -126,7 +172,8 @@ def get_jobdrop_queries() -> list[dict]:
 
     queries = []
     for role in roles[:MAX_JOBDROP_QUERIES]:
-        queries.append({"search_term": role, "location": remote, "is_remote": "remote" in remote.lower()})
+        is_remote = "remote" in remote.lower()
+        queries.append({"search_term": role, "location": remote, "is_remote": is_remote})
         queries.append({"search_term": role, "location": country.capitalize(), "is_remote": False})
     return queries
 

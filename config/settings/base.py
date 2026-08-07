@@ -148,6 +148,11 @@ MAX_LOCATION_DISTANCE_KM = 500
 FEED_BASE_URL = "https://rssjobs.app/feeds"
 FETCH_INTERVAL_MINUTES = int(os.getenv("FETCH_INTERVAL_MINUTES", "60"))
 
+# ── Data Lake + Warehouse (local-only) ────────────────────────────────
+
+DATA_LAKE_DIR = os.path.join(BASE_DIR, "data_lake")
+WAREHOUSE_DB_PATH = os.path.join(BASE_DIR, "warehouse", "jobbloot.duckdb")
+
 # ── Dashboard ─────────────────────────────────────────────────────────
 
 DASHBOARD_PAGE_SIZE = 50
