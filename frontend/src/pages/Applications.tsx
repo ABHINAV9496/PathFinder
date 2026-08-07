@@ -5,7 +5,7 @@ import { useTitle } from "../hooks/useTitle";
 import { jobFilterParams } from "../hooks/useJobFilters";
 import JobFilters from "../components/JobFilters";
 import { ListItemSkeleton } from "../components/Skeleton";
-import type { Application, PaginatedResponse } from "../types";
+import type { Application, ApplicationListResponse } from "../types";
 
 type StatusFilter = "all" | "sent" | "failed";
 
@@ -138,7 +138,7 @@ function AppCard({ app }: { app: Application }) {
 export default function Applications() {
   useTitle("Applications", "Track sent email applications, match scores, and skill gaps.");
   const [status, setStatus] = useState<StatusFilter>("all");
-  const [data, setData] = useState<PaginatedResponse<Application> | null>(null);
+  const [data, setData] = useState<ApplicationListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchParams] = useSearchParams();
 
@@ -152,9 +152,9 @@ export default function Applications() {
     });
   }, [status, searchParams]);
 
-  const totalCount = data?.count ?? 0;
-  const sentCount = data?.results.filter((a) => a.status === "sent").length ?? 0;
-  const failedCount = data?.results.filter((a) => a.status === "failed").length ?? 0;
+  const totalCount = data?.counts.all ?? 0;
+  const sentCount = data?.counts.sent ?? 0;
+  const failedCount = data?.counts.failed ?? 0;
 
   return (
     <>

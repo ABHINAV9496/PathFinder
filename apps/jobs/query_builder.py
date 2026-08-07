@@ -1,26 +1,14 @@
 """Build job-search queries from the user's profile (any profession).
 
-Every fetcher asks this module for its queries instead of importing the
-hardcoded lists in ``config/queries.py``. When the profile carries no
-``looking_for`` roles the legacy config defaults are used, so the app
-always works with zero configuration.
+Every fetcher asks this module for its queries instead of importing
+hardcoded lists. When the profile carries no ``looking_for`` roles the
+fetcher is blocked and the user is told to complete their profile, so
+no hardcoded queries are ever used.
 """
 
 import logging
 
 from apps.jobs.profile_manager import load_profile
-from config.queries import (
-    CUTSHORT_SEARCH_URLS as _DEFAULT_CUTSHORT_URLS,
-)
-from config.queries import (
-    JOBDROP_QUERIES as _DEFAULT_JOBDROP_QUERIES,
-)
-from config.queries import (
-    SEARCH_QUERIES as _DEFAULT_SEARCH_QUERIES,
-)
-from config.queries import (
-    TECHNOPARK_QUERIES as _DEFAULT_TECHNOPARK_QUERIES,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -96,12 +84,25 @@ def _is_india_profile(profile: dict, locations: list[str]) -> bool:
     return any(hint in " ".join(locations) for hint in _INDIAN_HINTS)
 
 
+def missing_fetch_fields() -> list[str]:
+    """Return the profile fields required before any job fetching can run.
+
+    An empty list means fetching is allowed. Anything else names the fields
+    the user still needs to fill in.
+    """
+    profile = load_profile()
+    missing = []
+    if not _roles(profile):
+        missing.append("looking_for")
+    return missing
+
+
 def get_search_queries() -> list[dict]:
     """RSS feed queries: role keywords x profile locations."""
     profile = load_profile()
     roles = _roles(profile)
     if not roles:
-        return list(_DEFAULT_SEARCH_QUERIES)
+        return []
 
     locations = _locations(profile)
 
@@ -131,8 +132,17 @@ def get_search_queries() -> list[dict]:
 
 
 def get_technopark_queries() -> list[dict]:
-    """Technopark is Kerala-specific; only used when the profile is Kerala-based."""
+    """Technopark queries built from the profile's target roles.
+
+    Only active for Kerala-based profiles: role keywords x the two Kerala
+    tech-park campuses. Returns [] when the profile is not Kerala-based or
+    has no roles to search for.
+    """
     profile = load_profile()
+    roles = _roles(profile)
+    if not roles:
+        return []
+
     haystack = (
         f"{profile.get('country') or ''} {profile.get('location') or ''}".lower()
     )
@@ -141,7 +151,12 @@ def get_technopark_queries() -> list[dict]:
         for kw in ("kerala", "kozhikode", "technopark", "infopark", "trivandrum", "kochi", "campus")
     ):
         return []
-    return list(_DEFAULT_TECHNOPARK_QUERIES)
+
+    queries = []
+    for role in roles:
+        queries.append({"keywords": role, "location": "technopark trivandrum"})
+        queries.append({"keywords": role, "location": "infopark kochi"})
+    return queries
 
 
 def get_cutshort_urls() -> list[str]:
@@ -149,7 +164,7 @@ def get_cutshort_urls() -> list[str]:
     profile = load_profile()
     roles = _roles(profile)
     if not roles:
-        return list(_DEFAULT_CUTSHORT_URLS)
+        return []
 
     urls = []
     for role in roles:
@@ -164,7 +179,7 @@ def get_jobdrop_queries() -> list[dict]:
     profile = load_profile()
     roles = _roles(profile)
     if not roles:
-        return list(_DEFAULT_JOBDROP_QUERIES)
+        return []
 
     country = (profile.get("country") or "").strip().lower() or "india"
     locations = _locations(profile)

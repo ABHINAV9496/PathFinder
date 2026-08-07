@@ -136,6 +136,29 @@ class TestApplicationFilters:
         data = response.json()
         assert data["count"] == 1
 
+    def test_counts_stable_across_status_tabs(self, client):
+        from apps.jobs.models import Application
+
+        self._make_app("a", "cutshort")
+        self._make_app("b", "technopark")
+        app_b = Application.objects.get(job__uid="b")
+        app_b.status = "failed"
+        app_b.save()
+
+        response = client.get("/api/v1/applications/")
+        data = response.json()
+        assert data["counts"] == {"all": 2, "sent": 1, "failed": 1}
+
+        response = client.get("/api/v1/applications/?status=sent")
+        data = response.json()
+        assert data["count"] == 1
+        assert data["counts"] == {"all": 2, "sent": 1, "failed": 1}
+
+        response = client.get("/api/v1/applications/?status=failed")
+        data = response.json()
+        assert data["count"] == 1
+        assert data["counts"] == {"all": 2, "sent": 1, "failed": 1}
+
 
 @pytest.mark.django_db
 class TestOverviewFilters:

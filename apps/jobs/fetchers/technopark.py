@@ -1,14 +1,14 @@
-import logging
-import re
 import html as html_mod
 import json as json_mod
+import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 
-from config.queries import TECHNOPARK_QUERIES
-from common.utils import make_uid, html_to_markdown
+from apps.jobs.query_builder import get_technopark_queries
 from apps.jobs.services import _extract_salary_from_text
+from common.utils import html_to_markdown, make_uid
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def fetch_technopark_jobs(max_per_query: int = 25) -> list[dict]:
         },
     )
 
-    for query in TECHNOPARK_QUERIES:
+    for query in get_technopark_queries():
         keywords = query["keywords"]
         location_hint = query.get("location", "")
         logger.info(f"Technopark: Searching '{keywords}'...")

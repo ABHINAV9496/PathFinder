@@ -1,4 +1,4 @@
-import type { PaginatedResponse, Job, JobDetail, Application, SecurityStatus, ResumeStatus, ApplyProgress, AIConfig, ATSScore, FilterOptions } from "../types";
+import type { PaginatedResponse, Job, JobDetail, ApplicationListResponse, SecurityStatus, ResumeStatus, ApplyProgress, AIConfig, ATSScore, FilterOptions } from "../types";
 
 const BASE = "/api/v1";
 
@@ -68,7 +68,7 @@ export const api = {
 
   },
   applications: {
-    list(params: Record<string, string> = {}): Promise<PaginatedResponse<Application>> {
+    list(params: Record<string, string> = {}): Promise<ApplicationListResponse> {
       const qs = new URLSearchParams(params).toString();
       return get(`/applications/${qs ? `?${qs}` : ""}`);
     },

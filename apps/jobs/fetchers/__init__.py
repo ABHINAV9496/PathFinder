@@ -13,7 +13,11 @@ from apps.jobs.fetchers.remoteok import fetch_remoteok_jobs
 from apps.jobs.fetchers.remotive import fetch_remotive_jobs
 from apps.jobs.fetchers.technopark import fetch_technopark_jobs
 from apps.jobs.models import RawJob
-from apps.jobs.query_builder import get_search_queries, get_technopark_queries
+from apps.jobs.query_builder import (
+    get_search_queries,
+    get_technopark_queries,
+    missing_fetch_fields,
+)
 from apps.jobs.services import _extract_salary_from_text
 from common.utils import deduplicate_jobs, make_uid
 from config.settings import FEED_BASE_URL
@@ -216,6 +220,23 @@ def _fuzzy_dedup(jobs: list[dict]) -> list[dict]:
 
 
 def fetch_all_jobs() -> tuple[list[dict], dict]:
+    missing = missing_fetch_fields()
+    if missing:
+        stats = {
+            "needs_profile": True,
+            "missing": missing,
+            "by_source": {},
+            "failed": [],
+            "final": 0,
+            "dups_removed": 0,
+            "batch_id": RawJob.new_batch_id(),
+        }
+        logger.warning(
+            "Fetch skipped: profile is missing %s (fill in your profile first)",
+            ", ".join(missing),
+        )
+        return [], stats
+
     all_jobs = []
     seen_uids = set()
     source_stats = {}

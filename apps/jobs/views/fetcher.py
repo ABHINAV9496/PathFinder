@@ -1,12 +1,12 @@
-import threading
 import logging
+import threading
 import time
 
+from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.decorators import api_view
 
-from django.http import JsonResponse
-from config.settings import DEBUG, DASHBOARD_MIN_SCORE_TRACK
+from config.settings import DASHBOARD_MIN_SCORE_TRACK, DEBUG
 
 logger = logging.getLogger(__name__)
 _fetcher_running = False
@@ -40,13 +40,16 @@ def _run_fetcher_background():
     try:
         from apps.jobs.fetchers import fetch_all_jobs
         from apps.jobs.matcher import match_all_jobs
+        from apps.jobs.models import Application, Job, JobEvent, RawJob
         from apps.jobs.services import (
-            enrich_jobs_with_emails, enrich_jobs_with_salaries,
+            _extract_salary_from_text,
+            bulk_save_jobs,
+            enrich_jobs_with_emails,
+            enrich_jobs_with_salaries,
             is_company_email,
-            bulk_save_jobs, save_web_apply,
-            update_daily_stats, _extract_salary_from_text,
+            save_web_apply,
+            update_daily_stats,
         )
-        from apps.jobs.models import Application, RawJob, JobEvent, Job
 
         _fetcher_running = True
 
@@ -55,16 +58,29 @@ def _run_fetcher_background():
         existing_uids = set(Job.objects.values_list("uid", flat=True))
 
         raw_jobs, fetch_stats = fetch_all_jobs()
+
+        if fetch_stats.get("needs_profile"):
+            _update_progress(
+                "skipped",
+                "Profile incomplete: set "
+                f"{', '.join(fetch_stats['missing'])} "
+                "(the roles you are looking for) to start fetching.",
+                100,
+                {"missing": fetch_stats["missing"]},
+            )
+            return
+
         batch_id = RawJob.new_batch_id()
 
         source_breakdown = fetch_stats.get("by_source", {})
         failed_sources = fetch_stats.get("failed", [])
-        dedup_info = f", {fetch_stats['dups_removed']} duplicates merged" if fetch_stats.get("dups_removed") else ""
 
-        _update_progress("filter", f"Filtering {len(raw_jobs)} jobs against existing database...", 40,
-                         {"total_raw": len(raw_jobs), "existing": len(existing_uids),
-                          "sources": source_breakdown, "failed_sources": failed_sources,
-                          "duplicates_removed": fetch_stats.get("dups_removed", 0)})
+        _update_progress(
+            "filter",
+            f"Filtering {len(raw_jobs)} jobs against existing database...", 40,
+            {"total_raw": len(raw_jobs), "existing": len(existing_uids),
+             "sources": source_breakdown, "failed_sources": failed_sources,
+             "duplicates_removed": fetch_stats.get("dups_removed", 0)})
 
         new_jobs = []
         updated_salary = 0
@@ -107,7 +123,10 @@ def _run_fetcher_background():
         })
 
         if not new_jobs:
-            _update_progress("done", f"No new jobs found. {updated_salary} salaries backfilled.", 100)
+            _update_progress(
+                "done",
+                f"No new jobs found. {updated_salary} salaries backfilled.", 100,
+            )
             update_daily_stats()
             return
 
@@ -133,8 +152,10 @@ def _run_fetcher_background():
         ]
 
         if email_candidates:
-            _update_progress("email", f"Looking up company emails for {len(email_candidates)} candidates...", 65,
-                             {"candidates": len(email_candidates)})
+            _update_progress(
+                "email",
+                f"Looking up company emails for {len(email_candidates)} candidates...", 65,
+                {"candidates": len(email_candidates)})
             enrich_jobs_with_emails(email_candidates)
 
         # Re-enrich existing matched jobs without emails (top 20 per cycle)
@@ -148,8 +169,10 @@ def _run_fetcher_background():
                     "description", "apply_url", "match_score", "matched_skills")[:20]
         )
         if email_needed:
-            _update_progress("email", f"Re-enriching {len(email_needed)} existing matched jobs...", 68,
-                             {"re_enrich": len(email_needed)})
+            _update_progress(
+                "email",
+                f"Re-enriching {len(email_needed)} existing matched jobs...", 68,
+                {"re_enrich": len(email_needed)})
             job_dicts = [{**j, "matched_skills": j.get("matched_skills") or [],
                           "apply_email": "", "full_text": ""} for j in email_needed]
             enrich_jobs_with_emails(job_dicts)
@@ -168,8 +191,10 @@ def _run_fetcher_background():
         salary_candidates = salary_candidates[:30]
 
         if salary_candidates:
-            _update_progress("salary", f"Checking {len(salary_candidates)} job pages for salary info...", 75,
-                             {"salary_check": len(salary_candidates)})
+            _update_progress(
+                "salary",
+                f"Checking {len(salary_candidates)} job pages for salary info...", 75,
+                {"salary_check": len(salary_candidates)})
             enrich_jobs_with_salaries(salary_candidates)
 
         _update_progress("save", "Saving matched jobs...", 85)
@@ -211,9 +236,10 @@ def _run_fetcher_background():
         _update_progress("stats", "Updating dashboard statistics...", 95)
         update_daily_stats()
 
-        _update_progress("done",
-                         f"Done! {len(new_jobs)} new jobs, {matched} matched. Ready for manual apply.",
-                         100)
+        _update_progress(
+            "done",
+            f"Done! {len(new_jobs)} new jobs, {matched} matched. Ready for manual apply.",
+            100)
 
     except Exception as e:
         logger.exception("Fetcher failed")
@@ -227,11 +253,17 @@ def _run_fetcher_background():
 @api_view(["POST"])
 def run_fetcher(request):
     if not DEBUG:
-        return JsonResponse({"error": "Only available in debug mode"}, status=status.HTTP_403_FORBIDDEN)
+        return JsonResponse(
+            {"error": "Only available in debug mode"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     global _fetcher_running
     if _fetcher_running:
-        return JsonResponse({"error": "Fetcher is already running"}, status=status.HTTP_409_CONFLICT)
+        return JsonResponse(
+            {"error": "Fetcher is already running"},
+            status=status.HTTP_409_CONFLICT,
+        )
 
     thread = threading.Thread(target=_run_fetcher_background, daemon=True)
     thread.start()
