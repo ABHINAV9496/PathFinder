@@ -26,6 +26,25 @@ CURRENCY_SYMBOLS = {
     "GBP": "£",
 }
 
+# Static rough FX table (anchored to INR) used for salary comparisons in the
+# profile's currency. Approximate only -- good enough for a match gate.
+FX_TO_INR = {
+    "INR": 1.0,
+    "USD": 83.0,
+    "EUR": 90.0,
+    "GBP": 105.0,
+}
+
+
+def convert_currency(amount: float, from_currency: str, to_currency: str) -> float:
+    """Rough-convert ``amount`` between supported currencies via the static
+    INR-anchored FX table. Unknown or equal currencies pass through unchanged."""
+    frm = (from_currency or "").upper()
+    to = (to_currency or "").upper()
+    if frm == to or frm not in FX_TO_INR or to not in FX_TO_INR:
+        return float(amount)
+    return float(amount) * FX_TO_INR[frm] / FX_TO_INR[to]
+
 SALARY_PATTERNS = [
     r"(?:upto|up\s*to|max|maximum|capped\s*at)\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*)\s*(?:[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*))?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year|k)",
     r"(?:[₹$€£]|Rs\.?|INR)\s*(\d[\d,]*)\s*[kK]?\s*[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year)?",
@@ -317,7 +336,10 @@ def save_application(job: Job, result: dict) -> Application:
         job=job,
         defaults={
             "email_subject": result.get("email_subject", ""),
-            "cover_letter_text": result.get("cover_letter", "") or (existing.cover_letter_text if existing else ""),
+            "cover_letter_text": (
+                result.get("cover_letter", "")
+                or (existing.cover_letter_text if existing else "")
+            ),
             "status": "sent" if result.get("success") else "failed",
             "error_message": "" if result.get("success") else result.get("message", ""),
             "skills_highlighted": result.get("skills_highlighted", []),
@@ -379,10 +401,18 @@ def update_daily_stats():
     today = date.today()
     stats, _ = DailyStats.objects.get_or_create(date=today)
     stats.total_fetched = RawJob.objects.filter(fetched_at__date=today).count()
-    stats.total_matched = JobEvent.objects.filter(event_type="matched", created_at__date=today).count()
-    stats.total_applied = Application.objects.filter(sent_at__date=today, status="sent").count()
-    stats.total_ignored = JobEvent.objects.filter(event_type="ignored", created_at__date=today).count()
-    stats.total_failed = Application.objects.filter(sent_at__date=today, status="failed").count()
+    stats.total_matched = (
+        JobEvent.objects.filter(event_type="matched", created_at__date=today).count()
+    )
+    stats.total_applied = (
+        Application.objects.filter(sent_at__date=today, status="sent").count()
+    )
+    stats.total_ignored = (
+        JobEvent.objects.filter(event_type="ignored", created_at__date=today).count()
+    )
+    stats.total_failed = (
+        Application.objects.filter(sent_at__date=today, status="failed").count()
+    )
 
     top_skills = (
         SkillLog.objects
@@ -484,7 +514,10 @@ def _get_http_client() -> httpx.Client:
     return httpx.Client(
         http2=True, timeout=15, follow_redirects=True,
         headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         },
@@ -517,7 +550,9 @@ def find_job_salary(job: dict, client: httpx.Client | None = None) -> tuple[int,
         except Exception as e:
             logger.debug(f"  Page fetch failed for salary: {e}")
 
-        description = f"{job.get('title', '')} {job.get('description', '')} {job.get('full_text', '')}"
+        description = (
+            f"{job.get('title', '')} {job.get('description', '')} {job.get('full_text', '')}"
+        )
         return _extract_salary_from_text(description)
 
     finally:

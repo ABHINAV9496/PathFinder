@@ -92,3 +92,85 @@ class TestMatchAllJobs:
     def test_match_empty_list(self):
         results = match_all_jobs([])
         assert results == []
+
+
+class TestPackSkillGaps:
+    NURSE_TEXT = (
+        "Registered nurse needed for patient care, medication administration, "
+        "and infection control at our hospital."
+    )
+
+    def test_pack_vocabulary_for_nurse(self):
+        from apps.jobs.profession_packs import pack_vocabulary
+
+        profile = {
+            "profession": "Nurse",
+            "role": "Registered Nurse",
+            "skills": {"clinical": ["patient care"]},
+        }
+        vocab = pack_vocabulary(profile)
+        assert "medication" in vocab
+        assert "infection control" in vocab
+
+    def test_skill_gaps_use_pack_vocabulary_and_skip_owned(self, monkeypatch):
+        from apps.jobs import matcher
+
+        profile = {
+            "profession": "Nurse",
+            "role": "Registered Nurse",
+            "skills": {"clinical": ["patient care", "vitals"]},
+        }
+        monkeypatch.setattr(matcher, "_profile", profile)
+        monkeypatch.setattr(
+            matcher,
+            "ALL_MY_SKILLS_LOWER",
+            {"patient care": "patient care", "vitals": "vitals"},
+        )
+        gaps = matcher._find_skill_gaps(self.NURSE_TEXT)
+        assert "Patient Care" not in gaps
+        assert "Medication" in gaps
+        assert "Infection Control" in gaps
+
+
+class TestSalaryCurrencyGate:
+    def test_convert_currency_rough(self):
+        from apps.jobs.services.core import convert_currency
+
+        assert convert_currency(1000, "USD", "INR") == 83000
+        assert convert_currency(83000, "INR", "USD") == 1000
+        assert convert_currency(500, "USD", "USD") == 500
+        assert convert_currency(500, "XYZ", "INR") == 500
+
+    def test_salary_gate_converts_to_profile_currency(self, monkeypatch):
+        from apps.jobs import matcher
+
+        profile = {
+            "currency": "USD",
+            "min_salary": 50000,
+            "skills": {},
+            "experience_years": 2,
+        }
+        monkeypatch.setattr(matcher, "_profile", profile)
+
+        inr_job = {
+            "title": "Software Engineer",
+            "company": "Acme",
+            "location": "Remote",
+            "description": "Python backend role",
+            "salary": 2000000,
+            "salary_display": "\u20b920L PA",
+        }
+        result = matcher.match_job(inr_job)
+        assert result["match_score"] == 0
+        assert result["filter_reason"].startswith("Salary too low")
+
+        usd_job = {
+            "title": "Software Engineer",
+            "company": "Acme",
+            "location": "Remote",
+            "description": "Python backend role",
+            "salary": 80000,
+            "salary_display": "$80K",
+        }
+        result = matcher.match_job(usd_job)
+        assert not result["filter_reason"].startswith("Salary too low")

@@ -1,8 +1,14 @@
 import logging
 import re
 
+from apps.jobs.profession_packs import pack_vocabulary
 from apps.jobs.profile_manager import build_skill_weights, load_profile
-from apps.jobs.services import _extract_salary_from_text
+from apps.jobs.services import (
+    CURRENCY_SYMBOLS,
+    _detect_currency,
+    _extract_salary_from_text,
+    convert_currency,
+)
 from config.constants import COMMON_JD_SKILLS, NORTH_INDIA_STATES
 from config.settings import (
     MATCH_THRESHOLD_APPLY,
@@ -23,7 +29,20 @@ for _cat in _profile.get("skills", {}).values():
 ALL_MY_SKILLS = [s for s in ALL_MY_SKILLS if isinstance(s, str)]
 ALL_MY_SKILLS_LOWER = {s.lower(): s for s in ALL_MY_SKILLS}
 
-_TECH_VOCAB = set(ALL_MY_SKILLS_LOWER.keys()) | set(COMMON_JD_SKILLS)
+_TECH_VOCAB = (
+    set(ALL_MY_SKILLS_LOWER.keys())
+    | set(COMMON_JD_SKILLS)
+    | pack_vocabulary(_profile)
+)
+
+
+def _skill_gap_vocab() -> set[str]:
+    """Skill-gap vocabulary: profile skills ∪ profession-pack keywords ∪ a
+    small generic JD set (no tech-only reliance)."""
+    vocab = set(COMMON_JD_SKILLS)
+    vocab |= set(ALL_MY_SKILLS_LOWER.keys())
+    vocab |= pack_vocabulary(_profile)
+    return vocab
 
 
 def _reject_job(job: dict, reason: str) -> dict:
@@ -82,11 +101,11 @@ def _find_matching_skills(text: str) -> tuple[list[str], dict[str, int]]:
 
 def _find_skill_gaps(text: str) -> list[str]:
     text_lower = text.lower()
+    own = set(ALL_MY_SKILLS_LOWER.keys())
     gaps = []
-    for skill in COMMON_JD_SKILLS:
-        if skill in text_lower:
-            display = skill.replace("_", " ").title()
-            gaps.append(display)
+    for skill in _skill_gap_vocab():
+        if skill and skill in text_lower and skill not in own:
+            gaps.append(skill.replace("_", " ").title())
     return gaps
 
 
@@ -155,6 +174,7 @@ def classify_jd_keywords(text: str) -> dict:
     candidates = set(ALL_MY_SKILLS_LOWER.keys())
     candidates |= set(COMMON_JD_SKILLS)
     candidates |= set(_SOFT_SKILLS)
+    candidates |= pack_vocabulary(_profile)
 
     for term in candidates:
         if not _contains_term(text_lower, term):
@@ -170,6 +190,19 @@ def classify_jd_keywords(text: str) -> dict:
         else:
             tiers["tier2"].append(term)
     return tiers
+
+
+def _job_currency(job: dict, salary_display: str, text: str) -> str:
+    """Detect the currency of a job's salary from its display or text."""
+    if salary_display:
+        disp = salary_display.upper()
+        for code, sym in CURRENCY_SYMBOLS.items():
+            if sym and sym in disp:
+                return code
+        for code in ("USD", "EUR", "GBP", "INR"):
+            if code in disp:
+                return code
+    return _detect_currency(text)
 
 
 def match_job(job: dict) -> dict:
@@ -198,8 +231,15 @@ def match_job(job: dict) -> dict:
     if not salary:
         salary, salary_display = _extract_salary_from_text(search_text)
     min_salary = _profile.get("min_salary") or MIN_SALARY
-    if salary and min_salary and salary < min_salary:
-        return _reject_job(job, f"Salary too low ({_profile.get('currency', 'INR')} {salary:,})")
+    if salary and min_salary:
+        job_currency = _job_currency(job, salary_display, search_text)
+        profile_currency = (_profile.get("currency") or "INR").upper()
+        if convert_currency(salary, job_currency, profile_currency) < min_salary:
+            shown = salary_display or f"{salary:,} {job_currency}"
+            return _reject_job(
+                job,
+                f"Salary too low ({shown} below min {min_salary:,.0f} {profile_currency})",
+            )
 
     required_years = _extract_experience_years(search_text)
     exp_min = _profile.get("experience_min", 0)
@@ -207,9 +247,13 @@ def match_job(job: dict) -> dict:
 
     if required_years is not None:
         if required_years > exp_max:
-            return _reject_job(job, f"Experience too high ({required_years}yr required, max {exp_max})")
+            return _reject_job(
+                job, f"Experience too high ({required_years}yr required, max {exp_max})"
+            )
         if exp_min > 0 and required_years < exp_min:
-            return _reject_job(job, f"Experience too low ({required_years}yr required, min {exp_min})")
+            return _reject_job(
+                job, f"Experience too low ({required_years}yr required, min {exp_min})"
+            )
 
     matched_skills, breakdown = _find_matching_skills(search_text)
 
@@ -340,8 +384,8 @@ def match_all_jobs(jobs: list[dict]) -> list[dict]:
 
     all_jobs.sort(key=lambda j: j["match_score"], reverse=True)
     logger.info(
-        f"Processed {len(all_jobs)} total: {len(all_jobs) - ignored_count} matched, {ignored_count} ignored "
-        f"(Location: {location_blocked}, Salary: {salary_blocked}, "
+        f"Processed {len(all_jobs)} total: {len(all_jobs) - ignored_count} matched, "
+        f"{ignored_count} ignored (Location: {location_blocked}, Salary: {salary_blocked}, "
         f"Experience: {experience_blocked}, Skill gaps: {skill_gap_blocked})"
     )
     return all_jobs
