@@ -7526,3 +7526,218 @@ textarea.form-control {
     border: 1px solid var(--border);
 }
 .tcv-btn-secondary:hover { background: var(--border); }
+
+/* ── Profile: skill categories (add/remove) ─────────────────────── */
+.pf-skill-cat {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pf-skill-cat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.pf-skill-cat-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
+    text-transform: capitalize;
+}
+
+.pf-skill-cat-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pf-skill-cat-remove:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #dc2626;
+}
+
+.pf-skill-add {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    max-width: 420px;
+}
+
+/* ── Onboarding wizard ──────────────────────────────────────────── */
+.onb-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 48px 20px;
+    background:
+        radial-gradient(600px 300px at 10% -10%, rgba(37, 99, 235, 0.08), transparent),
+        var(--bg);
+}
+
+.onb-card {
+    width: 100%;
+    max-width: 760px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.06);
+    padding: 32px 40px 28px;
+}
+
+.onb-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.onb-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 12px;
+}
+
+.onb-header h1 {
+    font-size: 22px;
+    margin: 0 0 6px;
+    color: var(--text);
+}
+
+.onb-header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.onb-progress {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 4px 0 20px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+}
+
+.onb-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 64px;
+    opacity: 0.45;
+}
+
+.onb-step.active { opacity: 1; }
+.onb-step.done { opacity: 0.75; }
+
+.onb-step-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.onb-step.active .onb-step-dot {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.onb-step.done .onb-step-dot {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: #10b981;
+}
+
+.onb-step-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-2);
+    white-space: nowrap;
+}
+
+.onb-body {
+    min-height: 220px;
+}
+
+.onb-title {
+    font-size: 18px;
+    margin: 0 0 4px;
+    color: var(--text);
+}
+
+.onb-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 16px;
+    line-height: 1.5;
+}
+
+.onb-sub code {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 12px;
+}
+
+.onb-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 20px;
+    margin-top: 24px;
+    border-top: 1px solid var(--border);
+}
+
+.onb-nav-spacer { flex: 1; }
+
+.onb-summary {
+    margin-top: 20px;
+    padding: 16px 18px;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.onb-summary h3 {
+    font-size: 14px;
+    margin: 0 0 8px;
+    color: var(--text);
+}
+
+.onb-summary ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-2);
+}
+
+.onb-summary strong { color: var(--text); }
