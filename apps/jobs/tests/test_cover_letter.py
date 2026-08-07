@@ -56,8 +56,14 @@ class TestGenerateTemplateCoverLetter:
 
 @pytest.mark.django_db
 class TestGenerateCoverLetter:
-    def test_no_ai_config_with_engine_down_returns_400(self, client):
+    def test_no_ai_config_with_engine_down_returns_400(self, client, monkeypatch):
         job = _make_job()
+        from apps.jobs.services import cover_letter_client
+
+        def raise_unavailable(*args, **kwargs):
+            raise CoverLetterEngineUnavailableError("down")
+
+        monkeypatch.setattr(cover_letter_client, "generate_cover_letter", raise_unavailable)
         response = client.post(f"/api/v1/jobs/{job.id}/generate-cover-letter/")
         assert response.status_code == 400
 
@@ -67,7 +73,7 @@ class TestGenerateCoverLetter:
 
         original = cover_letter.GenerateCoverLetter._generate_template
 
-        def fake_template(self, job):
+        def fake_template(self, job, profile=None):
             from rest_framework.response import Response
             return Response({"cover_letter": "Dear Hiring Manager,\n\nTemplate letter."})
 

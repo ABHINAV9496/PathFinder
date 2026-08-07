@@ -1,14 +1,38 @@
 """Deterministic, profession-agnostic template cover-letter generator.
 
-Grounded strictly in the candidate's own profile and uploaded resume
-text: every skill mentioned comes from ``profile.skills`` (matched against
-the JD), and every achievement is a verbatim line from the original
-resume. No LLM, no hallucination risk.
+Selects one of 12 hardcoded ATS-friendly templates based on JD signals
+(domain, seniority, tone, JD emphasis) and fills it with the candidate's
+own data: matched skills (filtered against missing keywords), best-fit
+projects, and grounded resume lines. No LLM, no hallucination risk.
 """
 
 import re
+from types import SimpleNamespace
 
+from coverletter.core import classify
 from coverletter.core.tailor import flatten_skills, tailor_cv
+from coverletter.core.templates import select
+
+
+def _signature(profile: dict) -> str:
+    lines = [profile.get("name", "").strip() or "Sincerely"]
+    if profile.get("phone"):
+        lines.append(profile["phone"].strip())
+    if profile.get("email"):
+        lines.append(profile["email"].strip())
+    for key in ("portfolio", "github", "linkedin"):
+        if profile.get(key):
+            lines.append(profile[key].strip())
+    return "\n".join(lines)
+
+
+def _join_and(items) -> str:
+    items = list(items)
+    if len(items) <= 1:
+        return ", ".join(items)
+    if len(items) == 2:
+        return " and ".join(items)
+    return ", ".join(items[:-1]) + ", and " + items[-1]
 
 
 def _resume_lines(resume_text: str) -> list[str]:
@@ -43,91 +67,190 @@ def _relevant_lines(resume_text: str, matched_skills: list[str], profile: dict) 
     return relevant
 
 
-def _signature(profile: dict) -> str:
-    lines = [profile.get("name", "").strip() or "Sincerely"]
-    if profile.get("phone"):
-        lines.append(profile["phone"].strip())
-    if profile.get("email"):
-        lines.append(profile["email"].strip())
-    for key in ("portfolio", "github", "linkedin"):
-        if profile.get(key):
-            lines.append(profile[key].strip())
-    return "\n".join(lines)
+def _best_project(job: dict, profile: dict) -> tuple[dict, dict | None]:
+    desc = (job.get("description") or "").lower()
+    matched = [s.lower() for s in (job.get("matched_skills") or [])]
+    projects = profile.get("projects", [])
+
+    scored = []
+    for p in projects:
+        p_tech = {t.lower() for t in p.get("tech", [])}
+        overlap = len(set(matched) & p_tech)
+        desc_bonus = sum(1 for t in p_tech if t in desc)
+        scored.append((overlap + desc_bonus, p))
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    primary = scored[0][1] if scored else {}
+    secondary = scored[1][1] if len(scored) > 1 else None
+    return primary, secondary
 
 
-def _no_ai_claims(text: str) -> str:
-    text = re.sub(r"\s{2,}", " ", text)
-    return text.strip()
+def _company_ref(company: str, style: str = "normal") -> str:
+    name = company.strip()
+    if not name:
+        return "your team"
+    if style == "possessive":
+        if name.endswith("s"):
+            return f"{name}'"
+        return f"{name}'s"
+    return name
+
+
+def _need_hook(job: dict, company: str) -> str:
+    desc = (job.get("description") or "").lower()
+    hooks = []
+    if any(w in desc for w in ["scalable", "scale", "high traffic", "millions"]):
+        hooks.append(f"scalable systems that handle real traffic at {company}")
+    if any(w in desc for w in ["api", "rest", "microservice"]):
+        hooks.append(f"clean, well-designed APIs at {company}")
+    if any(w in desc for w in ["saas", "platform", "product"]):
+        hooks.append(f"production SaaS products at {company}")
+    if any(w in desc for w in ["fast-paced", "move fast", "ship"]):
+        hooks.append(f"moving fast and shipping at {company}")
+    if any(w in desc for w in ["security", "auth", "rbac", "compliance"]):
+        hooks.append(f"secure, production-grade systems at {company}")
+    if any(w in desc for w in ["ai", "ml", "llm", "machine learning"]):
+        hooks.append(f"AI-powered products at {company}")
+    if hooks:
+        return hooks[0]
+    return f"the work your team is doing at {company}"
+
+
+# Category -> (support keywords to look for in the profile, line builder).
+_EMPHASIS_BUILDERS = {
+    "ai": (
+        ["llm", "rag", "groq", "openai", "langchain", "ai agents", "genai",
+         "prompt engineering", "gpt"],
+        lambda name: f"On the AI side, I've built production features around {name} -- prompt "
+                     f"engineering, structured output parsing, and fallbacks for when the model "
+                     f"is unreliable. ",
+    ),
+    "devops": (
+        ["docker", "aws", "gcp", "azure", "kubernetes", "ci/cd", "github actions",
+         "ec2", "terraform", "vercel"],
+        lambda name: f"I also handle deployment -- {name} plus CI/CD pipelines -- because "
+                     f"shipping reliably is part of the job. ",
+    ),
+    "frontend": (
+        ["react", "typescript", "javascript", "vue", "angular"],
+        lambda name: f"I build the frontend too ({name}), so I understand the full product "
+                     f"loop, not just the API. ",
+    ),
+    "security": (
+        ["jwt", "rbac", "oauth", "encryption", "owasp", "authentication", "auth"],
+        lambda name: f"Security is part of my work -- I've implemented {name} access control "
+                     f"and hardened APIs against common attack vectors. ",
+    ),
+    "data": (
+        ["postgresql", "sql", "sqlalchemy", "redis", "celery", "mysql", "database"],
+        lambda name: f"My data-layer work covers relational modeling and query tuning with "
+                     f"{name}. ",
+    ),
+}
+
+
+def _emphasis_lines(job: dict, profile: dict, emphases: set[str]) -> dict:
+    """Build grounded emphasis lines: only when the JD emphasizes the area
+    AND the candidate's profile actually contains a supporting skill."""
+    flat = flatten_skills(profile)
+    flat_lower = [s.lower() for s in flat]
+    result = {f"{k}_line": "" for k in _EMPHASIS_BUILDERS}
+
+    for category in emphases:
+        builder = _EMPHASIS_BUILDERS.get(category)
+        if not builder:
+            continue
+        keywords, make_line = builder
+        matched = next((flat[i] for i in range(len(flat))
+                        if any(kw in flat_lower[i] for kw in keywords)), None)
+        if matched:
+            result[f"{category}_line"] = make_line(matched)
+
+    return result
+
+
+def _build_context(job: dict, profile: dict, resume_text: str, matched_skills: list[str]):
+    missing_lower = {m.lower() for m in (job.get("missing_keywords") or [])}
+    engine_matched = job.get("matched_skills") or []
+    matched = [s for s in engine_matched if s.lower() not in missing_lower]
+    if not matched:
+        matched = list(matched_skills)
+    if not matched:
+        matched = flatten_skills(profile)[:5]
+    seen, cleaned = set(), []
+    for s in matched:
+        k = s.lower()
+        if k and k not in seen:
+            seen.add(k)
+            cleaned.append(s)
+    matched = cleaned
+
+    company = (job.get("company") or "").strip() or "your team"
+    primary, secondary = _best_project(job, profile)
+
+    primary_name = primary.get("name", "")
+    primary_desc = (primary.get("description") or "").lower()
+    primary_tech = ", ".join(primary.get("tech", [])[:6])
+    primary_ref = primary_name or "a full-stack application end to end"
+    secondary_ref = (
+        f"{secondary.get('name', '')} -- {(secondary.get('description') or '').lower()}"
+        if secondary else ""
+    )
+
+    relevant = _relevant_lines(resume_text, matched, profile)
+    grounded = bool(relevant)
+    evidence = ""
+    if relevant:
+        evidence = relevant[0]
+    elif primary_name:
+        evidence = f"Built {primary_name}: {primary.get('description', '')}"
+    evidence_sentence = f" Some of my relevant work includes {evidence}." if evidence else ""
+
+    features = classify.extract(job, profile)
+    emphases = features["emphases"]
+    lines = _emphasis_lines(job, profile, emphases)
+
+    return SimpleNamespace(
+        company=company,
+        company_possessive=_company_ref(company, "possessive"),
+        title=(job.get("title") or "the open position"),
+        role=(profile.get("role") or "professional"),
+        experience_years=profile.get("experience_years", 1),
+        skills_text=_join_and(matched[:6]) if matched else "industry-standard tools",
+        strengths=", ".join(matched[:4]) if matched else "my core competencies",
+        primary=primary,
+        primary_name=primary_name,
+        primary_desc=primary_desc,
+        primary_tech=primary_tech,
+        primary_ref=primary_ref,
+        secondary_ref=secondary_ref,
+        evidence_sentence=evidence_sentence,
+        need=_need_hook(job, company),
+        depth_case=features["seniority"] == "senior" and (profile.get("experience_years") or 0) < 3,
+        matched=matched,
+        relevant=relevant,
+        grounded=grounded,
+        features=features,
+        **lines,
+    )
 
 
 def generate_cover_letter(job: dict, profile: dict, resume_text: str = "") -> tuple[str, dict]:
     result = tailor_cv(job, profile)
+    features = classify.extract(job, profile)
+    ctx = _build_context(job, profile, resume_text, result.matched_skills)
 
-    role = job.get("title", "") or profile.get("role", "Professional")
-    company = job.get("company", "") or "your company"
+    template = select(features)
+    body = template["render"](ctx)
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
 
-    # Prefer the CV engine's authoritative match data when the caller supplies it.
-    engine_matched = job.get("matched_skills") or []
-    engine_missing = job.get("missing_keywords") or []
-    engine_missing_lower = {m.lower() for m in engine_missing}
-    matched_skills = [s for s in engine_matched if s.lower() not in engine_missing_lower]
-    if not matched_skills:
-        matched_skills = result.matched_skills or []
-    all_skills = flatten_skills(profile)
-
-    if not matched_skills:
-        matched_skills = all_skills[:5]
-
-    skills_text = ", ".join(matched_skills[:6]) if matched_skills else "industry-standard tools"
-    strengths = ", ".join(matched_skills[:4]) if matched_skills else "my core competencies"
-
-    relevant = _relevant_lines(resume_text, matched_skills, profile)
-    grounded = bool(relevant)
-    if not relevant:
-        projects = profile.get("projects", [])
-        if projects:
-            relevant = [
-                f"Built {p.get('name', '')}: {p.get('description', '')}"
-                for p in projects[:2] if p.get("name")
-            ]
-
-    paragraphs = []
-
-    opening = (
-        f"I am writing to apply for the {role} position at {company}. "
-        "The requirements in the job description align closely with my background and skills."
-    )
-    if matched_skills:
-        opening += (
-            f" In particular, my experience with {strengths} directly matches the core "
-            "competencies you are looking for."
-        )
-    paragraphs.append(_no_ai_claims(opening))
-
-    body = (
-        f"As a {profile.get('role', 'professional')} with "
-        f"{profile.get('experience_years', 1)} year"
-        f"{'s' if profile.get('experience_years', 1) != 1 else ''} of experience, "
-        f"I bring solid skills across {skills_text}."
-    )
-    if relevant:
-        evidence = relevant[0] if len(relevant) == 1 else " ".join(relevant[:2])
-        body += f" Some of my relevant work includes {evidence}."
-    paragraphs.append(_no_ai_claims(body))
-
-    closing = (
-        f"I am excited about the opportunity to contribute to {company} and would welcome "
-        "the chance to discuss how my experience fits your team. Thank you for your time "
-        "and consideration."
-    )
-    paragraphs.append(_no_ai_claims(closing))
-
-    letter = "Dear Hiring Manager,\n\n" + "\n\n".join(paragraphs) + "\n\n" + _signature(profile)
+    letter = f"Dear Hiring Manager,\n\n{body}\n\n{_signature(profile)}"
 
     return letter, {
-        "matched_skills": matched_skills,
+        "matched_skills": ctx.matched,
         "source": "deterministic",
-        "evidence_count": len(relevant),
-        "grounded_in_resume": grounded,
-        "missing_keywords": engine_missing,
+        "template": template["id"],
+        "evidence_count": len(ctx.relevant),
+        "grounded_in_resume": ctx.grounded,
+        "missing_keywords": job.get("missing_keywords") or [],
     }
