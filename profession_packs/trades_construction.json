@@ -1,0 +1,719 @@
+{
+  "id": "trades_construction",
+  "label": "Trades / Construction",
+  "detect_keywords": [
+    "electrician",
+    "electrical",
+    "plumber",
+    "plumbing",
+    "carpenter",
+    "carpentry",
+    "welder",
+    "welding",
+    "hvac",
+    "mechanic",
+    "mechanic",
+    "machinist",
+    "construction",
+    "foreman",
+    "technician",
+    "mason",
+    "painter",
+    "roofer",
+    "site",
+    "tool"
+  ],
+  "vocabulary": [
+    "safety",
+    "blueprints",
+    "codes",
+    "inspection",
+    "tools",
+    "measurements",
+    "installations",
+    "repairs",
+    "maintenance",
+    "quality of work",
+    "deadlines",
+    "site safety",
+    "hand tools",
+    "power tools",
+    "materials"
+  ],
+  "cover_letters": {
+    "fresher": {
+      "openings": [
+        {
+          "text": "I am applying for the {title} role at {company} because it matches the work I care about: work that is done right and done safe. I have spent my recent efforts on {primary}, where I owned the job from start to finish.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "The {title} position at {company} caught my attention because it asks for exactly the strengths I bring: {skills}. My most relevant experience is {primary}, where I owned the job from start to finish.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I got into the trades because I like taking a task and doing it properly, end to end. {primary} is that kind of work, and the {title} role at {company} looks like the same kind of work at a bigger scale.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "What pulls me toward {company} is that the {title} role is about producing something real, not maintaining something stale. That matches how I work: I took on {primary} because I wanted to own a problem from start to finish, using {skills}.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am writing to express my interest in the {title} role at {company}. I have been building toward exactly this kind of work, and the requirements in the job description align closely with what I have learned and delivered so far.{evidence}",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{company} has a clear sense of what it stands for, and that matters to me. The {title} role fits the work I already do -- work that is done right and done safe -- and I would be proud to bring my experience with {primary} to {possessive} team.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am excited to apply for the {title} opening at {company}. My strongest areas are {skills}, and I have applied them hands-on to {primary} with the goal of work that stands up to inspection.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{primary} taught me what good work looks like: work that is done right and done safe. The {title} role at {company} describes the same standard, and I would welcome the chance to meet it on a larger scale.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "healthcare",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ],
+      "bodies": [
+        {
+          "text": "My strongest areas are {skills}, and I have used them on {primary}. That experience taught me to move fast, ask good questions, and take ownership of what I produce.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am early in my career, but I know I can be productive from day one. I have built {primary} using {skills}, and I care about work that is done right and done safe -- not just getting the task done, but doing it properly.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "Across {primary} I have used {skills}, and I have learned to move fast, ask questions, and own what I deliver. I know I have more to learn, but I also know I can contribute from the start.",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I treat feedback as part of the work. On {primary} I listened, revised, and shipped a result I am proud of, using {skills} to make it better with every round.",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am committed to work that is done right and done safe. My training and my work on {primary} have given me {skills}, and I apply them with care and consistency.",
+          "tone": "formal",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "One thing I can promise: I bring {skills} and a genuine interest in work that stands up to inspection. {primary} shows the standard I hold myself to.",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I was raised on the rule that you do the job right or not at all. On {primary} I used {skills} and learned to read the blueprints, respect the code, and leave the site cleaner than I found it.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ],
+      "closings": [
+        {
+          "text": "I am genuinely interested in {need} and would love to discuss how I can contribute. Thank you for your consideration.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would welcome the chance to contribute to {need} and to grow with your team. I am happy to provide references or a work sample at any time.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would love to help deliver work that stands up to inspection at {company}. I am happy to talk about how my experience can support {need}.",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am eager to bring my experience to {company} and would welcome a conversation about how I can contribute to {need}.",
+          "tone": "formal",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "Thank you for considering my application. I would be delighted to discuss how my skills align with {need} and with the work your team does.",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would be proud to support {need} and to help build work that stands up to inspection at {company}. I look forward to hearing from you.",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{need} is exactly the kind of challenge I want to take on. I would welcome the chance to show what I can do at {company}.",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ]
+    },
+    "mid": {
+      "openings": [
+        {
+          "text": "I am applying for the {title} role at {company} because it matches the work I care about: work that is done right and done safe. I have spent my recent efforts on {primary}, where I owned the job from start to finish.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "The {title} position at {company} caught my attention because it asks for exactly the strengths I bring: {skills}. My most relevant experience is {primary}, where I owned the job from start to finish.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I got into the trades because I like taking a task and doing it properly, end to end. {primary} is that kind of work, and the {title} role at {company} looks like the same kind of work at a bigger scale.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "What pulls me toward {company} is that the {title} role is about producing something real, not maintaining something stale. That matches how I work: I took on {primary} because I wanted to own a problem from start to finish, using {skills}.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am writing to express my interest in the {title} role at {company}. I have been building toward exactly this kind of work, and the requirements in the job description align closely with what I have learned and delivered so far.{evidence}",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{company} has a clear sense of what it stands for, and that matters to me. The {title} role fits the work I already do -- work that is done right and done safe -- and I would be proud to bring my experience with {primary} to {possessive} team.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am excited to apply for the {title} opening at {company}. My strongest areas are {skills}, and I have applied them hands-on to {primary} with the goal of work that stands up to inspection.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{primary} taught me what good work looks like: work that is done right and done safe. The {title} role at {company} describes the same standard, and I would welcome the chance to meet it on a larger scale.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "healthcare",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ],
+      "bodies": [
+        {
+          "text": "My core strengths are {skills}. I care about doing the job properly, meeting expectations, and producing work that holds up under review.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "Most recently I delivered {primary}, where I took responsibility for the full scope of the work and saw it through from planning to completion. {evidence}",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I bring {skills}, and I approach each piece of work the same way -- understand the goal, plan carefully, deliver something solid, and follow through until it is finished properly.",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I work systematically, document thoroughly, and take ownership of quality and timelines. On {primary} I owned the job from start to finish, and it came together because the fundamentals were right.",
+          "tone": "formal",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I care about work that is done right and done safe. With {primary} I aimed for work that stands up to inspection, and the result held up because I did not cut corners.",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "In {primary} I had to balance speed with quality. I brought {skills} to that balance, and the outcome was work I could stand behind.",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "My experience spans {primary} and the steady rhythm of delivering work that stands up to inspection again and again -- exactly what the {title} role at {company} describes.",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I take pride in work that passes inspection the first time. With {primary} I applied {skills} on time and on budget, and the quality spoke for itself.",
+          "tone": "direct",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ],
+      "closings": [
+        {
+          "text": "I am genuinely interested in {need} and would love to discuss how I can contribute. Thank you for your consideration.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would welcome the chance to contribute to {need} and to grow with your team. I am happy to provide references or a work sample at any time.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would love to help deliver work that stands up to inspection at {company}. I am happy to talk about how my experience can support {need}.",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am eager to bring my experience to {company} and would welcome a conversation about how I can contribute to {need}.",
+          "tone": "formal",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "Thank you for considering my application. I would be delighted to discuss how my skills align with {need} and with the work your team does.",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would be proud to support {need} and to help build work that stands up to inspection at {company}. I look forward to hearing from you.",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{need} is exactly the kind of challenge I want to take on. I would welcome the chance to show what I can do at {company}.",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ]
+    },
+    "senior": {
+      "openings": [
+        {
+          "text": "I am applying for the {title} role at {company} because it matches the work I care about: work that is done right and done safe. I have spent my recent efforts on {primary}, where I owned the job from start to finish.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "The {title} position at {company} caught my attention because it asks for exactly the strengths I bring: {skills}. My most relevant experience is {primary}, where I owned the job from start to finish.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I got into the trades because I like taking a task and doing it properly, end to end. {primary} is that kind of work, and the {title} role at {company} looks like the same kind of work at a bigger scale.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "What pulls me toward {company} is that the {title} role is about producing something real, not maintaining something stale. That matches how I work: I took on {primary} because I wanted to own a problem from start to finish, using {skills}.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am writing to express my interest in the {title} role at {company}. I have been building toward exactly this kind of work, and the requirements in the job description align closely with what I have learned and delivered so far.{evidence}",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{company} has a clear sense of what it stands for, and that matters to me. The {title} role fits the work I already do -- work that is done right and done safe -- and I would be proud to bring my experience with {primary} to {possessive} team.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am excited to apply for the {title} opening at {company}. My strongest areas are {skills}, and I have applied them hands-on to {primary} with the goal of work that stands up to inspection.{evidence}",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{primary} taught me what good work looks like: work that is done right and done safe. The {title} role at {company} describes the same standard, and I would welcome the chance to meet it on a larger scale.{evidence}",
+          "tone": "story",
+          "company_types": [
+            "healthcare",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ],
+      "bodies": [
+        {
+          "text": "I bring {skills}, and I take responsibility for the full lifecycle: planning, delivery, quality, and the results that go out. {depth}",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "My most recent work, {primary}, is a good example: I owned the job from start to finish and stood behind the outcome.{evidence}",
+          "tone": "formal",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "Beyond the craft, I bring judgement: knowing what to build, how to sequence it, and how to keep quality high while moving fast. I have delivered {primary} with {skills}, and I hold myself to work that stands up to inspection.",
+          "tone": "direct",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "What I am proudest of is not the titles but the outcomes: work that stands up to inspection. With {primary} I owned the job from start to finish, and the result has stayed strong because the fundamentals were right.",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I also invest in the people around me -- mentoring, clear expectations, and the kind of process that lets a team deliver work that stands up to inspection without burning out.",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I have delivered {primary} using {skills}, and I have done it in environments where work that is done right and done safe was the standard, not the exception. I bring that standard with me.",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "work that stands up to inspection is the metric I have always aimed at. I have led {primary} and set the processes that made it reliable, and I would bring the same rigour to the {title} role.",
+          "tone": "formal",
+          "company_types": [
+            "government",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I have run crews and kept them safe. With {primary} I managed {skills} on site -- quality, schedule, and the safety of every person under my supervision. {depth}",
+          "tone": "formal",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ],
+      "closings": [
+        {
+          "text": "I am genuinely interested in {need} and would love to discuss how I can contribute. Thank you for your consideration.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would welcome the chance to contribute to {need} and to grow with your team. I am happy to provide references or a work sample at any time.",
+          "tone": "direct",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would love to help deliver work that stands up to inspection at {company}. I am happy to talk about how my experience can support {need}.",
+          "tone": "story",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I am eager to bring my experience to {company} and would welcome a conversation about how I can contribute to {need}.",
+          "tone": "formal",
+          "company_types": [
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "Thank you for considering my application. I would be delighted to discuss how my skills align with {need} and with the work your team does.",
+          "tone": "formal",
+          "company_types": [
+            "corporate",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "I would be proud to support {need} and to help build work that stands up to inspection at {company}. I look forward to hearing from you.",
+          "tone": "story",
+          "company_types": [
+            "nonprofit",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        },
+        {
+          "text": "{need} is exactly the kind of challenge I want to take on. I would welcome the chance to show what I can do at {company}.",
+          "tone": "direct",
+          "company_types": [
+            "startup",
+            "any"
+          ],
+          "emphases": [],
+          "priority": 99
+        }
+      ]
+    }
+  }
+}

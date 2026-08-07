@@ -6,6 +6,8 @@ dimensions used to score the hardcoded cover-letter templates:
 - domain: ai / fintech / startup / enterprise / tech / general
 - seniority: fresher / mid / senior
 - tone: direct / story / formal (neutral JDs default to ``direct``)
+- company_type: startup / corporate / nonprofit / healthcare / education /
+  hospitality / government / general
 - emphases: subset of {ai, devops, frontend, security, data}
 """
 
@@ -100,6 +102,55 @@ _EMPHASIS_SIGNALS = {
 }
 
 
+def classify_company_type(job: dict) -> str:
+    """Classify the company a candidate is applying to.
+
+    Combines the company name and JD language. Used by the profession-pack
+    composer so the letter matches the organisation (e.g. formal prose for a
+    bank, warm prose for a nonprofit, direct prose for a startup).
+    """
+    text = _text(job)
+
+    nonprofit_signals = ["nonprofit", "ngo", "non-profit", "charity", "foundation",
+                         "mission-driven", "social impact", "philanthropy", "society"]
+    if any(s in text for s in nonprofit_signals):
+        return "nonprofit"
+
+    healthcare_signals = ["hospital", "clinic", "healthcare", "health care", "medical",
+                          "health system", "patient", "nhs", "care home", "hospice"]
+    if any(s in text for s in healthcare_signals):
+        return "healthcare"
+
+    education_signals = ["school", "university", "college", "academy", "institute",
+                         "education", "campus", "school district", "teaching hospital"]
+    if any(s in text for s in education_signals):
+        return "education"
+
+    hospitality_signals = ["hotel", "restaurant", "resort", "hospitality", "cafe",
+                           "coffee", "travel", "tourism", "airline", "cruise"]
+    if any(s in text for s in hospitality_signals):
+        return "hospitality"
+
+    government_signals = ["government", "ministry", "federal", "municipal", "public sector",
+                          "state government", "agency", "administration"]
+    if any(s in text for s in government_signals):
+        return "government"
+
+    startup_signals = ["startup", "series a", "series b", "series c", "seed",
+                       "early stage", "fast-paced", "move fast", "bias for action",
+                       "scrappy", "scale-up", "venture"]
+    if any(s in text for s in startup_signals):
+        return "startup"
+
+    corporate_signals = ["enterprise", "fortune", "multinational", "global",
+                         "consulting", "mnc", "corporation", "bank", "insurance",
+                         "inc.", "ltd", "corp", "corporate"]
+    if any(s in text for s in corporate_signals):
+        return "corporate"
+
+    return "general"
+
+
 def classify_emphases(job: dict) -> set[str]:
     text = _text(job)
     emphases = set()
@@ -115,5 +166,6 @@ def extract(job: dict, profile: dict) -> dict:
         "domain": classify_domain(job),
         "seniority": classify_seniority(job, profile),
         "tone": classify_tone(job),
+        "company_type": classify_company_type(job),
         "emphases": classify_emphases(job),
     }
