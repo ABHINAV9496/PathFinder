@@ -224,10 +224,12 @@ class TestProfileFreshClone:
     def test_load_profile_when_missing_returns_defaults(self, monkeypatch, tmp_path):
         import apps.jobs.profile_manager as pm
         monkeypatch.setattr(pm, "PROFILE_JSON", tmp_path / "profile.json")
+        monkeypatch.setattr(pm, "_legacy_profile_py", lambda: {})
         profile = pm.load_profile()
-        assert profile["name"] == "Your Name"
+        assert profile["name"] == ""
         assert profile["skills"] == {}
-        assert profile["currency"] == "INR"
+        assert profile["currency"] == "USD"
+        assert profile["timezone"] == ""
 
     def test_ensure_default_profile_creates_file(self, monkeypatch, tmp_path):
         import apps.jobs.profile_manager as pm
@@ -239,11 +241,37 @@ class TestProfileFreshClone:
     def test_loaded_profile_merges_defaults(self, monkeypatch, tmp_path):
         import apps.jobs.profile_manager as pm
         monkeypatch.setattr(pm, "PROFILE_JSON", tmp_path / "profile.json")
+        monkeypatch.setattr(pm, "_legacy_profile_py", lambda: {})
         pm.save_profile({"name": "Ada"})
         profile = pm.load_profile()
         assert profile["name"] == "Ada"
         assert profile["skills"] == {}
-        assert profile["languages"] == ["English"]
+        assert profile["languages"] == []
+
+    def test_legacy_profile_py_merges_as_bootstrap(self, monkeypatch, tmp_path):
+        import apps.jobs.profile_manager as pm
+        monkeypatch.setattr(pm, "PROFILE_JSON", tmp_path / "profile.json")
+        monkeypatch.setattr(pm, "_legacy_profile_py", lambda: {"name": "Legacy", "currency": "EUR"})
+        profile = pm.load_profile()
+        assert profile["name"] == "Legacy"
+        assert profile["currency"] == "EUR"
+
+    def test_profile_json_overrides_legacy_profile_py(self, monkeypatch, tmp_path):
+        import apps.jobs.profile_manager as pm
+        monkeypatch.setattr(pm, "PROFILE_JSON", tmp_path / "profile.json")
+        monkeypatch.setattr(pm, "_legacy_profile_py", lambda: {"name": "Legacy", "currency": "EUR"})
+        pm.save_profile({"name": "Ada", "currency": "GBP"})
+        profile = pm.load_profile()
+        assert profile["name"] == "Ada"
+        assert profile["currency"] == "GBP"
+
+    def test_untouched_default_in_json_does_not_clobber_legacy(self, monkeypatch, tmp_path):
+        import apps.jobs.profile_manager as pm
+        monkeypatch.setattr(pm, "PROFILE_JSON", tmp_path / "profile.json")
+        monkeypatch.setattr(pm, "_legacy_profile_py", lambda: {"name": "Legacy"})
+        pm.save_profile(dict(pm.DEFAULT_PROFILE))
+        profile = pm.load_profile()
+        assert profile["name"] == "Legacy"
 
     def test_build_skill_weights_from_profile(self):
         from apps.jobs.profile_manager import build_skill_weights
