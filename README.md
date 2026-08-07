@@ -581,7 +581,16 @@ Thanks to everyone who has contributed to JobbLoot!
         <sub><b>Mohammed Swalih N K</b></sub>
       </a>
       <br />
-      <sub>Contributor</sub>
+      <sub>Co-Author</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/abhikrishna-a">
+        <img src="https://github.com/abhikrishna-a.png" width="100" style="border-radius:50%" alt="Abhikrishna A" />
+        <br />
+        <sub><b>Abhikrishna A</b></sub>
+      </a>
+      <br />
+      <sub>Co-Author</sub>
     </td>
   </tr>
 </table>
