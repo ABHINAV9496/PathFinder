@@ -1,5 +1,4 @@
-import pytest
-from common.utils import make_uid, is_company_email, clean_html, safe_console
+from common.utils import clean_html, is_company_email, is_junk_company_name, make_uid, safe_console
 
 
 class TestMakeUid:
@@ -59,6 +58,57 @@ class TestIsCompanyEmail:
     def test_scammer_like_email(self):
         valid, reason = is_company_email("hr@google.com")
         assert valid is False
+
+    def test_feed_placeholder_email(self):
+        valid, reason = is_company_email("your.email@domain.com")
+        assert valid is False
+        assert reason == "placeholder"
+
+    def test_feed_placeholder_variants(self):
+        for email in (
+            "yourname@domain.com",
+            "youremail@yourcompany.com",
+            "your_name@yourdomain.com",
+            "your-email@domain.com",
+            "yourcontact@somecompany.com",
+        ):
+            valid, reason = is_company_email(email)
+            assert valid is False, email
+            assert reason == "placeholder", email
+
+    def test_placeholder_domain_still_rejected(self):
+        valid, reason = is_company_email("recruiter@domain.com")
+        assert valid is False
+        assert "junk" in reason
+
+
+class TestIsJunkCompanyName:
+    def test_tagline_company_names_flagged(self):
+        for name in (
+            "Building India's first AI-powered recruitment marketplace",
+            "Building enterprise data, cloud, and AI solutions.",
+            "A leading AI and digital transformation consulting firm.",
+            "a leading provider of electronic trading solutions in India.",
+            "Hiring for Service Based Company",
+            "Global Digital Transformation Solutions Provider",
+            "We are a fast-growing AI startup.",
+        ):
+            assert is_junk_company_name(name) is True, name
+
+    def test_real_company_names_not_flagged(self):
+        for name in (
+            "TechCorp",
+            "Games24x7",
+            "Prophaze Technologies (P) Ltd",
+            "Tata Consultancy Services",
+            "Selkirk Sport - We Are Pickleball",
+            "Interdisciplinary Transformation University (IT:U)",
+            "L'Agence Pour Le Non-Marchand",
+            "Cascade Revenue Management - An AIMA Group Company",
+            "",
+            None,
+        ):
+            assert is_junk_company_name(name) is False, name
 
 
 class TestCleanHtml:

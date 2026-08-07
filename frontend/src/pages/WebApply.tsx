@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
+import { jobFilterParams } from "../hooks/useJobFilters";
+import JobFilters from "../components/JobFilters";
 
 interface WebApplyItem {
   id: number;
@@ -61,9 +63,11 @@ export default function WebApply() {
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    api.webApply.list().then((d: any) => {
+    setLoading(true);
+    api.webApply.list(jobFilterParams(searchParams)).then((d: any) => {
       setItems(d.applications || []);
       setTotalCount(d.total_count || 0);
       setLoading(false);
@@ -71,7 +75,7 @@ export default function WebApply() {
       setError(err.message || "Failed to load web applications");
       setLoading(false);
     });
-  }, []);
+  }, [searchParams]);
 
   if (loading) {
     return (
@@ -107,6 +111,7 @@ export default function WebApply() {
     return (
       <>
         <div className="page-header"><h2>Web Apply</h2></div>
+        <JobFilters />
         <div className="st-empty">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
@@ -136,6 +141,8 @@ export default function WebApply() {
       <div className="page-header">
         <h2>Web Apply <span className="count">({totalCount})</span></h2>
       </div>
+
+      <JobFilters />
 
       {/* Summary */}
       <div className="st-summary-row">

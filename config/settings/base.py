@@ -87,7 +87,7 @@ DATABASES = {
 }
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "Asia/Kolkata"
+TIME_ZONE = os.getenv("TIME_ZONE", "Asia/Kolkata")
 USE_I18N = True
 USE_TZ = True
 
@@ -123,15 +123,22 @@ RESUME_PATH = BASE_DIR / os.getenv("RESUME_PATH", "resume/Your_Resume.pdf")
 CV_ENGINE_BASE_URL = os.getenv("CV_ENGINE_BASE_URL", "http://127.0.0.1:8001")
 CV_ENGINE_SERVICE_KEY = os.getenv("CV_ENGINE_SERVICE_KEY", "")
 
+# ── Cover Letter Engine (microservice) ─────────────────────────────
+
+COVER_LETTER_ENGINE_BASE_URL = os.getenv("COVER_LETTER_ENGINE_BASE_URL", "http://127.0.0.1:8002")
+COVER_LETTER_ENGINE_SERVICE_KEY = os.getenv(
+    "COVER_LETTER_ENGINE_SERVICE_KEY", "cover-letter-engine-dev-key"
+)
+
 # ── Job Matching Thresholds ──────────────────────────────────────────
 
 MATCH_THRESHOLD_APPLY = 65
 MATCH_THRESHOLD_TRACK = 50
-MIN_SALARY = 18000
+MIN_SALARY = int(os.getenv("MIN_SALARY", "18000"))
 MIN_PROJECT_MATCH = 1
 MAX_SKILL_GAP_PCT = 40
 MAX_SALARY_GAP_PCT = 50
-MAX_SALARY = 400000
+MAX_SALARY = int(os.getenv("MAX_SALARY", "400000"))
 MIN_EXPERIENCE = 0
 MAX_EXPERIENCE = 15
 MAX_LOCATION_DISTANCE_KM = 500
@@ -140,6 +147,11 @@ MAX_LOCATION_DISTANCE_KM = 500
 
 FEED_BASE_URL = "https://rssjobs.app/feeds"
 FETCH_INTERVAL_MINUTES = int(os.getenv("FETCH_INTERVAL_MINUTES", "60"))
+
+# ── Data Lake + Warehouse (local-only) ────────────────────────────────
+
+DATA_LAKE_DIR = os.path.join(BASE_DIR, "data_lake")
+WAREHOUSE_DB_PATH = os.path.join(BASE_DIR, "warehouse", "jobbloot.duckdb")
 
 # ── Dashboard ─────────────────────────────────────────────────────────
 

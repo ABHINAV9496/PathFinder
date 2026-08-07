@@ -22,7 +22,8 @@ class UserProfile(BaseAPIView):
         profile = data.get("profile", {})
         required = ["name", "email", "role", "experience_years", "location"]
         for field in required:
-            if not profile.get(field):
+            value = profile.get(field)
+            if value in (None, ""):
                 return self.error(f"Missing required field: {field}", status.HTTP_400_BAD_REQUEST)
 
         for cat in profile.get("skills", {}):
@@ -45,11 +46,17 @@ class UserProfile(BaseAPIView):
         if isinstance(lang_raw, str):
             profile["languages"] = [s.strip() for s in lang_raw.split(",") if s.strip()]
 
-        for field, default in [("experience_years", 1), ("experience_min", 0), ("experience_max", 3)]:
+        int_fields = [("experience_years", 1), ("experience_min", 0), ("experience_max", 3)]
+        for field, default in int_fields:
             try:
                 profile[field] = int(profile.get(field, default))
             except (ValueError, TypeError):
                 profile[field] = default
+
+        try:
+            profile["min_salary"] = int(profile.get("min_salary", 0))
+        except (ValueError, TypeError):
+            profile["min_salary"] = 0
 
         experience_raw = profile.get("experience", [])
         if isinstance(experience_raw, str):
@@ -86,7 +93,8 @@ class UserProfile(BaseAPIView):
         if isinstance(phone_raw, str):
             profile["phone"] = phone_raw.strip()
 
-        for field in ["github", "linkedin", "portfolio"]:
+        for field in ["github", "linkedin", "portfolio", "website",
+                      "profession", "country", "timezone", "currency"]:
             val = profile.get(field, "")
             if isinstance(val, str):
                 profile[field] = val.strip()

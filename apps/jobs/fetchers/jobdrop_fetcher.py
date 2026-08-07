@@ -2,9 +2,13 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from common.utils import make_uid
-from config.queries import JOBDROP_QUERIES, JOBDROP_SOURCES
+from apps.jobs.profile_manager import load_profile
+from apps.jobs.query_builder import get_jobdrop_queries, get_jobdrop_sources
 
 logger = logging.getLogger(__name__)
+
+JOBDROP_HOURS_OLD = 72
+JOBDROP_RESULTS_WANTED = 30
 
 
 def _map_salary(row) -> tuple[int, str]:
@@ -66,10 +70,20 @@ def _map_location(row) -> str:
     return "Not specified"
 
 
+def _site_name(value) -> str:
+    """Return the plain source string from a jobdrop Site enum or str."""
+    if value is None:
+        return ""
+    if hasattr(value, "value"):
+        return str(value.value)
+    return str(value)
+
+
 def _fetch_single_jobdrop_query(query: dict) -> list[dict]:
     """Fetch one Jobdrop query. Returns list of job dicts."""
     search_term = query["search_term"]
     location = query["location"]
+    is_remote = bool(query.get("is_remote"))
     jobs = []
 
     try:
@@ -78,13 +92,17 @@ def _fetch_single_jobdrop_query(query: dict) -> list[dict]:
         logger.error("jobdrop not installed")
         return []
 
+    country_indeed = (load_profile().get("country") or "").strip().lower() or "india"
+
     try:
         df = scrape_jobs(
-            site_name=JOBDROP_SOURCES,
+            site_name=get_jobdrop_sources(),
             search_term=search_term,
             location=location,
-            results_wanted=50,
-            country_indeed="india",
+            results_wanted=JOBDROP_RESULTS_WANTED,
+            country_indeed=country_indeed,
+            is_remote=is_remote,
+            hours_old=JOBDROP_HOURS_OLD,
             verbose=0,
         )
 
@@ -92,9 +110,16 @@ def _fetch_single_jobdrop_query(query: dict) -> list[dict]:
             logger.info(f"Jobdrop: No results for '{search_term}' in '{location}'")
             return []
 
+        per_source = (df.attrs or {}).get("per_source", {})
+        contributed = {s: d.get("count", 0) for s, d in per_source.items()}
+        if contributed:
+            logger.info(f"Jobdrop per_source: {contributed}")
+        else:
+            logger.warning(f"Jobdrop per_source telemetry missing for '{search_term}'")
+
         for _, row in df.iterrows():
             title = str(getattr(row, "title", "")).strip()
-            company = str(getattr(row, "company_name", "")).strip()
+            company = str(getattr(row, "company", "")).strip()
 
             if not title or not company:
                 continue
@@ -106,7 +131,7 @@ def _fetch_single_jobdrop_query(query: dict) -> list[dict]:
             description = str(getattr(row, "description", "") or "")
             job_url = str(getattr(row, "job_url", "") or "")
             date_posted = str(getattr(row, "date_posted", "") or "")
-            site = str(getattr(row, "site", "") or "")
+            site = _site_name(getattr(row, "site", ""))
             full_text = f"{title} {company} {description} {location_str}"
 
             jobs.append({
@@ -136,11 +161,15 @@ def _fetch_single_jobdrop_query(query: dict) -> list[dict]:
 
 def fetch_jobdrop_jobs() -> list[dict]:
     """Fetch jobs from Jobdrop sources in parallel."""
+    queries = get_jobdrop_queries()
+    if not queries:
+        return []
+
     all_jobs = []
     seen_uids = set()
 
-    with ThreadPoolExecutor(max_workers=min(len(JOBDROP_QUERIES), 4)) as pool:
-        futures = {pool.submit(_fetch_single_jobdrop_query, q): q for q in JOBDROP_QUERIES}
+    with ThreadPoolExecutor(max_workers=min(len(queries), 4)) as pool:
+        futures = {pool.submit(_fetch_single_jobdrop_query, q): q for q in queries}
         for future in as_completed(futures):
             try:
                 for job in future.result():

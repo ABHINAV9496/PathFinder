@@ -1,18 +1,21 @@
-import logging
 import time
 
 from django.core.management.base import BaseCommand
 
 from apps.jobs.fetchers import fetch_all_jobs
 from apps.jobs.matcher import match_all_jobs
-from apps.jobs.services import (
-    enrich_jobs_with_emails, is_company_email,
-    bulk_save_jobs, update_daily_stats, job_exists,
-    save_web_apply,
-)
-from common.utils import safe_console
 from apps.jobs.models import Application, Job
-from config.settings import MATCH_THRESHOLD_APPLY, DASHBOARD_MIN_SCORE_TRACK
+from apps.jobs.services import (
+    bulk_save_jobs,
+    enrich_jobs_with_emails,
+    is_company_email,
+    job_exists,
+    save_web_apply,
+    update_daily_stats,
+)
+from apps.jobs.warehouse import build_warehouse
+from common.utils import safe_console
+from config.settings import DASHBOARD_MIN_SCORE_TRACK, MATCH_THRESHOLD_APPLY
 
 
 class Command(BaseCommand):
@@ -116,10 +119,24 @@ class Command(BaseCommand):
             failed=0,
         )
 
+        try:
+            warehouse = build_warehouse()
+            if "error" in warehouse:
+                message = f"  Warehouse build skipped: {warehouse['error']}"
+                self.stdout.write(self.style.WARNING(message))
+            else:
+                rows = sum(warehouse["counts"].values())
+                self.stdout.write(self.style.SUCCESS(
+                    f"  Warehouse updated: {rows} rows across 6 tables"
+                ))
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"  Warehouse build skipped: {e}"))
+
         elapsed = round(time.time() - start, 1)
+        sources_count = len(fetch_stats.get("by_source", {}))
         self.stdout.write(self.style.SUCCESS(
             f"\nCycle complete in {elapsed}s\n"
-            f"  Fetched:     {len(raw_jobs)} (from {len(fetch_stats.get('by_source', {}))} sources)\n"
+            f"  Fetched:     {len(raw_jobs)} (from {sources_count} sources)\n"
             f"  Matched:     {len(matched_jobs)}\n"
             f"  Has email:   {has_email} (visible in Apply Queue)\n"
             f"  No email:    {no_email}\n"

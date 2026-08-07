@@ -5,10 +5,11 @@ from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.response import Response
 
-from apps.jobs.models import AIConfig, Job, Application
 from apps.jobs.llm_client import generate_with_llm
-from apps.jobs.views.base import BaseAPIView
+from apps.jobs.models import AIConfig, Application, Job, UserProfile
 from apps.jobs.profile_manager import load_profile
+from apps.jobs.views.base import BaseAPIView
+from apps.jobs.views.generate_cv import _extract_resume_text
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Invoked by POST /api/jobs/<id>/cover-letter.
 #
 # KEY COMPONENTS:
-#   _build_system_prompt() — returns the system prompt for the LLM, containing:
+#   _build_system_prompt(profile) — returns the system prompt for the LLM, containing:
 #     - OUTPUT RULES: no labels, no thinking tags, must start with salutation
 #     - STRUCTURE: 4-5 paragraphs, mandatory "Dear Hiring Manager," first line,
 #       opening references JD detail, body connects relevant projects, closing
@@ -36,8 +37,8 @@ logger = logging.getLogger(__name__)
 #     - PROJECT ATTRIBUTION RULE: tech must belong to the project it's tied to
 #     - LOCATION / AVAILABILITY / SENIORITY AWARENESS rules
 #     - FINAL CHECK: spelling, tech names, salutation present, signature intact
-#   _build_user_prompt(job) — injects JD details, candidate profile, skill gaps
-#   _validate_letter(letter, job) — deterministic post-generation checks:
+#   _build_user_prompt(job, profile) — injects JD details, candidate profile, skill gaps
+#   _validate_letter(letter, job, profile) — deterministic post-generation checks:
 #     a. Salutation presence   b. Signature stripping/reappending
 #     c. Forbidden skills      d. Project attribution
 #     e. Numeric claims        f. Ungrounded claims
@@ -46,7 +47,10 @@ logger = logging.getLogger(__name__)
 #     retry on hard issues, and saves to Application model.
 #
 # KEY VARIABLES / DATA:
-#   _PROFILE_CACHE — lazy-loaded candidate profile from profile_manager
+#   _PROFILE_CACHE — lazy-loaded file-based fallback profile (profile.json)
+#   _resolve_profile(request) — per-request profile lookup: authenticated
+#     user's UserProfile, then an explicit profile_id, then the file fallback;
+#     the resolved dict is threaded through every builder below.
 #   _ACRONYM_MAP — bidirectional acronym↔expansion lookup
 #   _SEMANTIC_CLUSTERS — tech clusters for project-attribution broadening
 #   _UNGROUNDED_CLAIM_PATTERNS — maps vague categories → grounding keywords
@@ -56,11 +60,52 @@ logger = logging.getLogger(__name__)
 
 _PROFILE_CACHE = None
 
+# Number of auto-repair attempts after the first validation fails on hard
+# issues (forbidden skills, misattributions, unverified numbers, ungrounded
+# claims). Each attempt re-runs the full validation.
+AI_RETRY_LIMIT = 2
+
 def _get_profile():
     global _PROFILE_CACHE
     if _PROFILE_CACHE is None:
         _PROFILE_CACHE = load_profile()
     return _PROFILE_CACHE
+
+
+def _resolve_profile(request):
+    """Resolve the profile dict for this request.
+
+    Priority:
+    1. Authenticated ``request.user`` -> their linked ``UserProfile``.
+    2. ``profile_id`` passed in the request body or query string.
+    3. Fallback: the file-based profile (``profile.json``) for single-user
+       dev mode / backward compatibility.
+
+    Returns ``(profile, error_message)``. ``error_message`` is set only when
+    an explicit ``profile_id`` was requested but no matching
+    ``UserProfile`` exists -- the caller should not silently fall back.
+    """
+    user = getattr(request, "user", None)
+    if user is not None and getattr(user, "is_authenticated", False):
+        up = getattr(user, "user_profile", None)
+        if up is not None:
+            return up.to_dict(), None
+
+    raw_data = {}
+    try:
+        if isinstance(request.data, dict):
+            raw_data = request.data
+    except Exception:
+        raw_data = {}
+    profile_id = raw_data.get("profile_id") or request.query_params.get("profile_id")
+    if profile_id:
+        try:
+            up = UserProfile.objects.get(id=profile_id)
+        except (UserProfile.DoesNotExist, ValueError, TypeError):
+            return None, f"Profile id={profile_id} not found."
+        return up.to_dict(), None
+
+    return _get_profile(), None
 
 
 def _clean_cover_letter(text: str) -> str:
@@ -69,12 +114,12 @@ def _clean_cover_letter(text: str) -> str:
     return text.strip()
 
 
-def _build_signature() -> str:
-    name = _get_profile().get("name", "Developer")
-    phone = _get_profile().get("phone", "")
-    portfolio = _get_profile().get("portfolio", "")
-    github = _get_profile().get("github", "")
-    linkedin = _get_profile().get("linkedin", "")
+def _build_signature(profile: dict) -> str:
+    name = profile.get("name", "Developer")
+    phone = profile.get("phone", "")
+    portfolio = profile.get("portfolio", "")
+    github = profile.get("github", "")
+    linkedin = profile.get("linkedin", "")
 
     lines = [name]
     if phone:
@@ -88,11 +133,11 @@ def _build_signature() -> str:
     return "Regards,\n" + "\n".join(lines)
 
 
-def _compute_skill_gap(job) -> tuple[str, str]:
+def _compute_skill_gap(job, profile: dict) -> tuple[str, str]:
     """Compare job requirements against candidate profile.
     Returns (candidate_has, candidate_missing) as comma-separated strings."""
     candidate_skills_lower = set()
-    for cat_skills in _get_profile().get("skills", {}).values():
+    for cat_skills in profile.get("skills", {}).values():
         for s in cat_skills:
             candidate_skills_lower.add(s.lower())
 
@@ -132,8 +177,8 @@ def _compute_skill_gap(job) -> tuple[str, str]:
     return has_text, missing_text
 
 
-def _build_system_prompt() -> str:
-    signature = _build_signature()
+def _build_system_prompt(profile: dict) -> str:
+    signature = _build_signature(profile)
 
     return f"""You are a professional cover letter writer for a software developer.
 
@@ -153,6 +198,11 @@ STRUCTURE (4-5 short paragraphs, under 180 words body):
 5. Closing: A brief, confident close. Vary it between letters -- do NOT always use the same closing sentence.
 
 Then append the signature block exactly as given in the SIGNATURE section below, on a new line after the closing paragraph.
+
+PARAGRAPH SEPARATION RULE:
+- Each distinct project or experience you discuss must be its own paragraph, separated by a blank line. Never describe two different projects in the same paragraph.
+- The letter must have clearly separated paragraphs: salutation, opening (JD alignment), one paragraph per project/experience discussed (usually 1-2 total), and a distinct closing paragraph. Never merge the closing statement into the same paragraph as a technical detail.
+- The closing paragraph must be its own paragraph, end with a forward-looking statement (e.g. 'I'd welcome the chance to discuss...'), and must not be the same sentence as the last technical point.
 
 BANNED:
 - "I am genuinely interested in contributing to X and happy to discuss how I can add value from day one" -- never use this closer.
@@ -195,6 +245,7 @@ GROUNDED CLAIM RULE -- MANDATORY:
 - Do NOT write soft, unverifiable claims like 'I'm comfortable with testing' or 'I have experience with the full lifecycle including testing' unless the source data actually names a specific testing tool, framework, or practice (e.g. pytest, Jest, CI test suite, integration tests). A vague gesture at a skill with no supporting detail is a red flag to reviewers -- it reads as filling a checklist rather than describing real experience.
 - If the job requires a skill (e.g. testing) that has no specific, nameable backing in the candidate's data, do NOT mention that skill at all, vague or otherwise. Silence on an unaddressed requirement is more credible than a soft, unsupported claim about it. It is better to leave a gap unaddressed than to paper over it with vague language.
 - This applies to any skill category, not just testing: monitoring, security, accessibility, compliance, etc. -- same rule.
+- Do not write blanket claims like 'Both projects run on X' or 'Both projects include Y' unless X or Y is specifically true for each project individually and is a specific, nameable tool or practice -- not a vague category like 'automated testing' with no named framework.
 
 JD TECHNOLOGY LIST RULE:
 - When the job description lists multiple technologies together (e.g. 'REST, webhooks, and OAuth' or 'Go, Java, Python, or C++'), you may NEVER claim the full list as something you have experience with as a group.
@@ -219,6 +270,7 @@ PROJECT ATTRIBUTION RULE:
 - Do not attribute a skill, technology, or responsibility to a project unless it is explicitly listed under that project's own entry.
 - If a skill is only mentioned in the candidate's general skills list or under a different project or experience, either mention it generally without tying it to the wrong project, or attribute it to the correct project or role it actually belongs to.
 - Never write "in Project X, I used Skill Y" if Skill Y does not appear in Project X's Tech line.
+- Do not write blanket claims like 'Both projects run on X' or 'Both projects include Y' unless X or Y is specifically true for each project individually and is a specific, nameable tool or practice -- not a vague category like 'automated testing' with no named framework.
 
 LOCATION RULE:
 - Only make a claim about relocation, remote availability, or being 'based in' a location if the candidate's actual location and relocation preference are given to you explicitly below.
@@ -245,13 +297,13 @@ FINAL CHECK (do this silently before outputting):
 - Only output the final, corrected version -- never show your proofreading process."""
 
 
-def _build_user_prompt(job) -> str:
-    name = _get_profile().get("name", "Developer")
-    location = _get_profile().get("location", "India")
-    role = _get_profile().get("role", "Full Stack Developer")
-    experience_years = _get_profile().get("experience_years", 1)
+def _build_user_prompt(job, profile: dict) -> str:
+    name = profile.get("name", "Developer")
+    location = profile.get("location", "India")
+    role = profile.get("role", "Full Stack Developer")
+    experience_years = profile.get("experience_years", 1)
 
-    experience = _get_profile().get("experience", [])
+    experience = profile.get("experience", [])
     exp_text = ""
     if experience:
         e = experience[0]
@@ -261,10 +313,10 @@ def _build_user_prompt(job) -> str:
 
     desc = (job.description or "")[:3000]
 
-    candidate_has, candidate_missing = _compute_skill_gap(job)
+    candidate_has, candidate_missing = _compute_skill_gap(job, profile)
 
     projects_text = ""
-    for p in _get_profile().get("projects", []):
+    for p in profile.get("projects", []):
         projects_text += (
             f"- {p['name']}: {p['description']} "
             f"(Tech: {', '.join(p['tech'][:8])})\n"
@@ -280,9 +332,9 @@ def _build_user_prompt(job) -> str:
             experience_text += f" ({e['duration']})"
         experience_text += "\n"
 
-    portfolio = _get_profile().get("portfolio", "")
-    github = _get_profile().get("github", "")
-    linkedin = _get_profile().get("linkedin", "")
+    portfolio = profile.get("portfolio", "")
+    github = profile.get("github", "")
+    linkedin = profile.get("linkedin", "")
     urls_text = []
     if portfolio:
         urls_text.append(f"Portfolio: {portfolio}")
@@ -307,9 +359,9 @@ Name: {name}
 Role: {role}
 Experience: {experience_years} year(s) -- {exp_text}
 CANDIDATE TOTAL EXPERIENCE: {experience_years} year(s)
-CANDIDATE LOCATION: {_get_profile().get('location', 'Not specified')}
-OPEN TO RELOCATION: {_get_profile().get('open_to_relocation', 'Not specified')}
-CANDIDATE AVAILABILITY: {_get_profile().get('availability', 'Not specified')}
+CANDIDATE LOCATION: {profile.get('location', 'Not specified')}
+OPEN TO RELOCATION: {profile.get('open_to_relocation', 'Not specified')}
+CANDIDATE AVAILABILITY: {profile.get('availability', 'Not specified')}
 Profile URLs:
 {urls_block}
 
@@ -375,6 +427,8 @@ def _check_requirement_coverage(job, letter: str) -> list[str]:
 _AGGREGATE_REFERENCES = {
     "both projects", "both codebases", "both platforms", "each project",
     "these projects", "all my projects", "across both", "both applications",
+    "across projects", "across all my", "in my work", "throughout my",
+    "on multiple", "in various", "my experience with", "my work on",
 }
 
 _ACRONYM_MAP = {
@@ -409,8 +463,30 @@ _SEMANTIC_CLUSTERS = [
     ({"langchain", "rag", "ai agents", "llm", "opentelemetry"}, {"langchain", "rag", "ai agents", "llm", "opentelemetry"}),
 ]
 
+# Dev tools used by essentially every software project. Allowed for any
+# project only when the candidate claims the skill in their profile, so a
+# sentence like "I used git on DENJO-C" is not flagged as misattribution.
+_UNIVERSAL_TOOLS = {
+    "git", "github", "github actions", "ci/cd", "docker", "docker compose",
+}
 
-def _project_allowed_terms(project: dict) -> set[str]:
+# Infrastructure / hosting implied by a listed technology (RDS hosts
+# PostgreSQL, Vercel hosts React apps, ...). Only applied when the candidate
+# also claims the implied skill, preventing false misattribution flags.
+_IMPLIED_TECH = {
+    "django": {"gunicorn", "drf"},
+    "drf": {"django"},
+    "postgresql": {"rds"},
+    "redis": {"elasticache"},
+    "aws": {"ec2", "s3", "iam", "cloudfront", "elasticache", "rds"},
+    "react": {"react.js", "vite", "vercel"},
+    "react.js": {"react", "vercel"},
+    "llm": {"groq", "openai", "rag", "langchain", "ai agents"},
+    "groq": {"llm"},
+}
+
+
+def _project_allowed_terms(project: dict, profile: dict) -> set[str]:
     """Build the full set of terms allowed for a project: its tech list,
     words from its description, acronym equivalents, and semantic clusters."""
     allowed = set()
@@ -418,11 +494,13 @@ def _project_allowed_terms(project: dict) -> set[str]:
         allowed.add(t.lower())
         if t.lower() in _ACRONYM_MAP:
             allowed.add(_ACRONYM_MAP[t.lower()])
+    _STOP_WORDS_2 = {"is","in","at","by","to","an","on","of","or","as","it","be","we","us","no","my","up","if","do","so","go","he","she","me","am"}
     desc = project.get("description", "")
-    for word in re.findall(r'\b[a-zA-Z]{3,}\b', desc.lower()):
-        allowed.add(word)
+    for word in re.findall(r'\b[a-zA-Z]{2,}\b', desc.lower()):
+        if len(word) > 2 or word not in _STOP_WORDS_2:
+            allowed.add(word)
     # Acronym mappings for individual skills
-    for cat_skills in _get_profile().get("skills", {}).values():
+    for cat_skills in profile.get("skills", {}).values():
         for s in cat_skills:
             s_lower = s.lower()
             if s_lower in _ACRONYM_MAP and _ACRONYM_MAP[s_lower] in allowed:
@@ -434,6 +512,19 @@ def _project_allowed_terms(project: dict) -> set[str]:
     for trigger_set, allow_set in _SEMANTIC_CLUSTERS:
         if project_tech_lower & {t.lower() for t in trigger_set}:
             allowed.update({s.lower() for s in allow_set})
+    # Universal tooling + infra implied by listed tech (git, RDS for
+    # PostgreSQL, Vercel for React, ...): allowed only when the candidate
+    # claims the skill in their profile, so true statements are not flagged.
+    profile_skills = set()
+    for cat_skills in profile.get("skills", {}).values():
+        profile_skills.update(s.lower() for s in cat_skills)
+    for tool in _UNIVERSAL_TOOLS:
+        if tool in profile_skills:
+            allowed.add(tool)
+    for tech in project_tech_lower:
+        for implied in _IMPLIED_TECH.get(tech, ()):
+            if implied in profile_skills:
+                allowed.add(implied)
     return allowed
 
 
@@ -500,26 +591,26 @@ _UNGROUNDED_CLAIM_PATTERNS = {
 }
 
 
-def _build_profile_source_text() -> str:
+def _build_profile_source_text(profile: dict) -> str:
     """Aggregate all PROFILE text into a single searchable string."""
     parts = []
-    for p in _get_profile().get("projects", []):
+    for p in profile.get("projects", []):
         parts.append(p.get("description", ""))
         parts.append(" ".join(p.get("tech", [])))
-    for e in _get_profile().get("experience", []):
+    for e in profile.get("experience", []):
         for v in e.values():
             if isinstance(v, str):
                 parts.append(v)
-    for cat_skills in _get_profile().get("skills", {}).values():
+    for cat_skills in profile.get("skills", {}).values():
         parts.extend(cat_skills)
     return " ".join(parts).lower()
 
 
-def _check_ungrounded_claims(letter_body: str) -> list[str]:
+def _check_ungrounded_claims(letter_body: str, profile: dict) -> list[str]:
     """Detect vague skill-practice claims in the letter that have no
     grounding in the candidate's actual profile data."""
     issues = []
-    profile_text = _build_profile_source_text()
+    profile_text = _build_profile_source_text(profile)
 
     for category, cfg in _UNGROUNDED_CLAIM_PATTERNS.items():
         # Check if the letter makes a vague claim in this category
@@ -546,8 +637,7 @@ _PLACEHOLDER_DOMAINS = [
     "linkedin.com/in/yourname", "github.com/yourusername",
 ]
 
-def _replace_placeholder_urls(text: str) -> str:
-    profile = _get_profile()
+def _replace_placeholder_urls(text: str, profile: dict) -> str:
     replacements = {}
     if profile.get("portfolio"):
         replacements["portfolio"] = profile["portfolio"]
@@ -570,7 +660,7 @@ def _pick_replacement(matched: str, replacements: dict) -> str:
     return matched
 
 
-def _validate_letter(letter: str, job) -> dict:
+def _validate_letter(letter: str, job, profile: dict) -> dict:
     """Run deterministic checks on a cover letter. Returns
     {"issues": [...], "repaired_letter": str}."""
     issues = []
@@ -582,12 +672,17 @@ def _validate_letter(letter: str, job) -> dict:
         repaired = "Dear Hiring Manager,\n\n" + repaired.lstrip()
 
     # --- b. SIGNATURE CHECK ---
-    expected_sig = _build_signature()
-    sig_lower = expected_sig.lower().split("\n")
+    expected_sig = _build_signature(profile)
+    sig_lower = [s for s in expected_sig.lower().split("\n") if s]
     body_lines = repaired.rstrip().split("\n")
     while body_lines:
         line_stripped = body_lines[-1].strip().lower()
-        if any(line_stripped == s for s in sig_lower if s):
+        # Pop exact signature lines and truncated fragments ("Port" is a partial
+        # "Portfolio: ..."), so a cut-off signature is replaced, not duplicated.
+        if any(
+            line_stripped == s or (len(line_stripped) >= 3 and s.startswith(line_stripped))
+            for s in sig_lower
+        ):
             body_lines.pop()
         else:
             break
@@ -597,7 +692,7 @@ def _validate_letter(letter: str, job) -> dict:
     repaired = body + "\n\n" + expected_sig
 
     # --- c. FORBIDDEN SKILL CHECK (body only, not signature) ---
-    _, candidate_missing_str = _compute_skill_gap(job)
+    _, candidate_missing_str = _compute_skill_gap(job, profile)
     if candidate_missing_str and not candidate_missing_str.startswith("None"):
         missing_skills = [s.strip() for s in candidate_missing_str.split(",")]
         sig_start = repaired.lower().rfind(expected_sig.split("\n")[0].lower())
@@ -609,20 +704,33 @@ def _validate_letter(letter: str, job) -> dict:
                 issues.append(f"forbidden_skill:{skill}")
 
     # --- d. PROJECT ATTRIBUTION CHECK ---
-    projects = _get_profile().get("projects", [])
+    projects = profile.get("projects", [])
 
     all_tech_terms = set()
     for p in projects:
         all_tech_terms.update(t.lower() for t in p.get("tech", []))
-    for cat_skills in _get_profile().get("skills", {}).values():
+    for cat_skills in profile.get("skills", {}).values():
         all_tech_terms.update(s.lower() for s in cat_skills)
     for term in list(all_tech_terms):
         if term in _ACRONYM_MAP:
             all_tech_terms.add(_ACRONYM_MAP[term])
 
+    # Skills the candidate lists only as general capabilities (not tied to any
+    # specific project) are allowed anywhere: mentioning them next to a project
+    # name is a claim about the candidate, not an attribution to the project.
+    project_tech_union = set()
+    for p in projects:
+        project_tech_union.update(t.lower() for t in p.get("tech", []))
+    general_skills = set()
+    for cat_skills in profile.get("skills", {}).values():
+        for s in cat_skills:
+            s_lower = s.lower()
+            if s_lower not in project_tech_union:
+                general_skills.add(s_lower)
+
     project_allowed = {}
     for p in projects:
-        allowed = _project_allowed_terms(p)
+        allowed = _project_allowed_terms(p, profile)
         allowed_substrings = set()
         for t in allowed:
             for part in re.split(r'[\s/\-]+', t):
@@ -654,18 +762,22 @@ def _validate_letter(letter: str, job) -> dict:
         for term in all_tech_terms:
             if term not in sent_lower:
                 continue
-            for p in matched_projects:
-                if not _is_term_allowed(term, project_allowed[p["name"]]):
-                    target = "+".join(p["name"] for p in matched_projects)
-                    issues.append(f"misattribution:{term}->{target}")
-                    break
+            if term in general_skills:
+                continue
+            # A term mentioned alongside several projects is fine when it is
+            # allowed for at least one of them ("I built PyDocAI and DENJO-C
+            # with JWT"): the sentence may only claim it for one project.
+            if any(_is_term_allowed(term, project_allowed[p["name"]]) for p in matched_projects):
+                continue
+            target = "+".join(p["name"] for p in matched_projects)
+            issues.append(f"misattribution:{term}->{target}")
 
     # --- e. NUMERIC CLAIM CHECK ---
     source_text = ""
     for p in projects:
         source_text += p.get("description", "") + " "
         source_text += " ".join(p.get("tech", [])) + " "
-    for e in _get_profile().get("experience", []):
+    for e in profile.get("experience", []):
         source_text += e.get("company", "") + " "
         source_text += e.get("role", "") + " "
         source_text += e.get("duration", "") + " "
@@ -689,25 +801,56 @@ def _validate_letter(letter: str, job) -> dict:
             issues.append(f"unverified_number:{match.strip()}")
 
     # --- f. UNGROUNDED CLAIM CHECK (body only, not signature) ---
-    issues.extend(_check_ungrounded_claims(letter_body))
+    issues.extend(_check_ungrounded_claims(letter_body, profile))
 
     # --- g. PLACEHOLDER URL REPLACEMENT ---
     # Replace any placeholder/hallucinated URLs with the real ones from profile
-    repaired = _replace_placeholder_urls(repaired)
+    repaired = _replace_placeholder_urls(repaired, profile)
 
     return {"issues": issues, "repaired_letter": repaired}
 
 
+def _job_dict_with_ats(job, resume_text: str = "", profile: dict | None = None) -> dict:
+    """Build the job dict for the cover letter engine, enriched with the CV
+    engine's tier-derived missing keywords so the letter never claims skills
+    the ATS analysis flags as missing."""
+    job_dict = {
+        "id": job.id,
+        "company": job.company,
+        "title": job.title,
+        "location": job.location or "",
+        "description": job.description or "",
+        "matched_skills": job.matched_skills or [],
+        "skill_gaps": job.skill_gaps or [],
+    }
+    try:
+        from apps.jobs.services.cv_engine_client import get_ats_score
+        profile_data = dict(profile) if profile else _get_profile()
+        if resume_text:
+            profile_data["resume_text"] = resume_text
+        result = get_ats_score(job_dict, profile_data)
+        ats = result.get("ats") or {}
+        missing = ats.get("missing_keywords") or []
+        if missing:
+            job_dict["missing_keywords"] = missing
+    except Exception as e:
+        logger.debug(f"ATS report unavailable for cover letter job %d: %s", job.id, e)
+    return job_dict
+
+
 class GenerateCoverLetter(BaseAPIView):
     def post(self, request, job_id):
-        ai = AIConfig.load()
-        if not ai.has_ai_config:
-            return self.error(
-                "AI not configured. Set your API key in Profile > AI Settings.",
-                status.HTTP_400_BAD_REQUEST,
-            )
+        profile, profile_error = _resolve_profile(request)
+        if profile_error:
+            return self.error(profile_error, status.HTTP_404_NOT_FOUND)
 
         job = get_object_or_404(Job.objects.select_related(), id=job_id)
+
+        ai = AIConfig.load()
+        if not ai.has_ai_config or not ai.get_api_key():
+            # No LLM configured: degrade to the deterministic template letter
+            # from the Cover Letter Engine (zero-config default).
+            return self._generate_template(job, profile)
 
         api_key = ai.get_api_key()
         if not api_key:
@@ -716,8 +859,83 @@ class GenerateCoverLetter(BaseAPIView):
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        system_prompt = _build_system_prompt()
-        user_prompt = _build_user_prompt(job)
+        try:
+            resume_text = _extract_resume_text()
+        except Exception:
+            resume_text = ""
+
+        job_dict = _job_dict_with_ats(job, resume_text, profile)
+
+        from apps.jobs.services.cover_letter_client import (
+            CoverLetterEngineUnavailableError,
+        )
+        from apps.jobs.services.cover_letter_client import (
+            generate_cover_letter as engine_generate,
+        )
+
+        try:
+            result = engine_generate(
+                job_dict,
+                profile,
+                mode="ai",
+                resume_text=resume_text,
+                ai_config={
+                    "api_key": api_key,
+                    "api_base_url": ai.api_base_url,
+                    "model": ai.model_name,
+                    "provider": ai.provider,
+                },
+            )
+        except CoverLetterEngineUnavailableError:
+            logger.warning("Cover letter engine down for job %d; using local LLM flow", job.id)
+            return self._generate_locally(job, ai, profile)
+
+        cover_letter = result.get("cover_letter", "")
+        if not cover_letter:
+            return self._generate_locally(job, ai, profile)
+
+        existing_app = Application.objects.filter(job=job).first()
+        if existing_app:
+            existing_app.cover_letter_text = cover_letter
+            existing_app.save(update_fields=["cover_letter_text"])
+
+        return self.success({"cover_letter": cover_letter})
+
+    def _generate_template(self, job, profile: dict):
+        from apps.jobs.services.cover_letter_client import (
+            CoverLetterEngineUnavailableError,
+        )
+        from apps.jobs.services.cover_letter_client import (
+            generate_cover_letter as engine_generate,
+        )
+
+        job_dict = _job_dict_with_ats(job, profile=profile)
+
+        try:
+            result = engine_generate(job_dict, profile, mode="template")
+            cover_letter = result.get("cover_letter", "")
+        except CoverLetterEngineUnavailableError:
+            cover_letter = ""
+
+        if not cover_letter:
+            return self.error(
+                "AI not configured. Set your API key in Profile > AI Settings, or start "
+                "the cover letter service.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing_app = Application.objects.filter(job=job).first()
+        if existing_app:
+            existing_app.cover_letter_text = cover_letter
+            existing_app.save(update_fields=["cover_letter_text"])
+
+        return self.success({"cover_letter": cover_letter})
+
+    def _generate_locally(self, job, ai, profile: dict):
+        api_key = ai.get_api_key()
+
+        system_prompt = _build_system_prompt(profile)
+        user_prompt = _build_user_prompt(job, profile)
 
         cover_letter, llm_error = generate_with_llm(
             system_prompt=system_prompt,
@@ -726,6 +944,8 @@ class GenerateCoverLetter(BaseAPIView):
             api_base_url=ai.api_base_url,
             model=ai.model_name,
             provider=ai.provider,
+            max_tokens=1000,
+            timeout=30.0,
         )
 
         if not cover_letter:
@@ -744,7 +964,7 @@ class GenerateCoverLetter(BaseAPIView):
         cover_letter = _clean_cover_letter(cover_letter)
 
         # --- Validation layer ---
-        validation = _validate_letter(cover_letter, job)
+        validation = _validate_letter(cover_letter, job, profile)
         all_issues = validation["issues"]
         cover_letter = validation["repaired_letter"]
 
@@ -759,8 +979,10 @@ class GenerateCoverLetter(BaseAPIView):
             if i.startswith(("forbidden_skill:", "misattribution:", "unverified_number:", "ungrounded_claim:"))
         ]
 
-        # --- Retry once if hard issues found ---
-        if hard_issues:
+        # --- Auto-repair retries when hard issues are found ---
+        retries = 0
+        while hard_issues and retries < AI_RETRY_LIMIT:
+            retries += 1
             retry_prompt = (
                 f"Your previous attempt had these accuracy problems: "
                 f"{'; '.join(hard_issues)}. Fix each one specifically in this attempt. "
@@ -777,43 +999,54 @@ class GenerateCoverLetter(BaseAPIView):
                 api_base_url=ai.api_base_url,
                 model=ai.model_name,
                 provider=ai.provider,
+                max_tokens=1000,
+                timeout=30.0,
             )
 
-            if retry_letter:
-                retry_letter = _clean_cover_letter(retry_letter)
-                retry_validation = _validate_letter(retry_letter, job)
-                retry_hard = [
-                    i for i in retry_validation["issues"]
-                    if i.startswith(("forbidden_skill:", "misattribution:", "unverified_number:", "ungrounded_claim:"))
-                ]
+            if not retry_letter:
+                # LLM call failed on this retry; keep the best attempt so far.
+                logger.warning(
+                    "Retry LLM call failed for job %d (%s, model=%s): %s",
+                    job.id, job.company, ai.model_name, retry_error,
+                )
+                break
 
-                if retry_hard:
-                    logger.warning(
-                        "Retry still has hard issues for job %d (%s, model=%s): %s",
-                        job.id, job.company, ai.model_name, "; ".join(retry_hard),
-                    )
-                    return Response(
-                        {
-                            "error": (
-                                "AI generation had accuracy issues that could not be "
-                                f"auto-corrected: {'; '.join(retry_hard)}. Try again, or "
-                                "verify manually before sending."
-                            ),
-                            "draft_with_warnings": retry_validation["repaired_letter"],
-                        },
-                        status=status.HTTP_502_BAD_GATEWAY,
-                    )
+            retry_letter = _clean_cover_letter(retry_letter)
+            retry_validation = _validate_letter(retry_letter, job, profile)
+            hard_issues = [
+                i for i in retry_validation["issues"]
+                if i.startswith(("forbidden_skill:", "misattribution:", "unverified_number:", "ungrounded_claim:"))
+            ]
+            if hard_issues and retries < AI_RETRY_LIMIT:
+                continue
 
-                cover_letter = retry_validation["repaired_letter"]
-                if retry_validation["issues"]:
-                    logger.warning(
-                        "Retry auto-fixed remaining issues for job %d (%s, model=%s): %s",
-                        job.id, job.company, ai.model_name,
-                        "; ".join(retry_validation["issues"]),
-                    )
+            cover_letter = retry_validation["repaired_letter"]
+            if hard_issues:
+                logger.warning(
+                    "Retry still has hard issues for job %d (%s, model=%s): %s",
+                    job.id, job.company, ai.model_name, "; ".join(hard_issues),
+                )
+                return Response(
+                    {
+                        "error": (
+                            "AI generation had accuracy issues that could not be "
+                            f"auto-corrected: {'; '.join(hard_issues)}. Try again, or "
+                            "verify manually before sending."
+                        ),
+                        "draft_with_warnings": retry_validation["repaired_letter"],
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            if retry_validation["issues"]:
+                logger.warning(
+                    "Retry auto-fixed remaining issues for job %d (%s, model=%s): %s",
+                    job.id, job.company, ai.model_name,
+                    "; ".join(retry_validation["issues"]),
+                )
+            break
 
         # --- Final placeholder URL safety net ---
-        cover_letter = _replace_placeholder_urls(cover_letter)
+        cover_letter = _replace_placeholder_urls(cover_letter, profile)
 
         coverage_warnings = _check_requirement_coverage(job, cover_letter)
         if coverage_warnings:

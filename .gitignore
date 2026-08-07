@@ -26,5 +26,12 @@ profile.json
 test_*.pdf
 tests/
 
+# Local database backups
+backups/
+
 # Uploaded files
 media/
+
+# Local data lake + warehouse
+data_lake/
+warehouse/

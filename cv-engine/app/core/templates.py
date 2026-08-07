@@ -54,9 +54,9 @@ def render_header(profile: dict, job: dict = None, company_type: str = "general"
 def render_summary(profile: dict, job: dict, tailor_result) -> str:
     summary = tailor_result.summary_text if tailor_result else ""
     if not summary:
-        role = profile.get("role", "Developer")
+        role = profile.get("role", "Professional")
         exp = profile.get("experience_years", 1)
-        summary = f"{role} with {exp} year{'s' if exp != 1 else ''} of experience building web applications."
+        summary = f"{role} with {exp} year{'s' if exp != 1 else ''} of professional experience delivering measurable results."
 
     return f"""<div class="summary">
 <h2>Professional Summary</h2>
@@ -65,71 +65,25 @@ def render_summary(profile: dict, job: dict, tailor_result) -> str:
 
 
 def render_skills(profile: dict, tailor_result) -> str:
-    matched = tailor_result.matched_skills if tailor_result else []
-    matched_lower = [s.lower() for s in matched]
+    matched = {s.lower() for s in (tailor_result.matched_skills if tailor_result else [])}
 
-    category_order = ["languages", "frontend", "backend", "database", "cloud_devops", "ai_tools"]
-    category_labels = {
-        "languages": "Languages",
-        "frontend": "Frontend",
-        "backend": "Backend",
-        "database": "Database",
-        "cloud_devops": "Cloud & DevOps",
-        "ai_tools": "AI & Tools",
-    }
+    category_html = []
+    for cat, skills in profile.get("skills", {}).items():
+        if not isinstance(skills, list) or not skills:
+            continue
+        label = cat.replace("_", " ").replace("-", " ").title()
+        ordered = sorted(
+            skills,
+            key=lambda s: (0 if s.lower() in matched else 1, s.lower()),
+        )
+        category_html.append(
+            f'<div class="skill-category"><strong>{label}:</strong> {", ".join(ordered)}</div>'
+        )
 
-    skills_by_category = {cat: [] for cat in category_order}
-    seen = set()
-
-    language_skills = {"python", "javascript", "sql", "typescript", "java", "c", "c++", "go", "rust", "ruby", "php"}
-    database_skills = {"postgresql", "mysql", "sqlite", "mongodb", "redis", "elasticsearch", "sql queries"}
-    devops_skills = {"docker", "docker compose", "nginx", "celery", "git", "github", "ci/cd", "github actions", "kubernetes", "aws"}
-
-    for cat in ["backend", "frontend", "ai_llm", "cloud", "devops", "tools"]:
-        for skill in profile.get("skills", {}).get(cat, []):
-            s_lower = skill.lower()
-            if s_lower in seen:
-                continue
-            seen.add(s_lower)
-
-            is_matched = s_lower in matched_lower
-
-            if s_lower in language_skills:
-                target = "languages"
-            elif s_lower in database_skills:
-                target = "database"
-            elif s_lower in devops_skills:
-                target = "cloud_devops"
-            elif cat in ("cloud", "devops"):
-                target = "cloud_devops"
-            elif cat == "ai_llm":
-                target = "ai_tools"
-            elif cat == "tools":
-                target = "ai_tools"
-            elif cat == "backend":
-                target = "backend"
-            elif cat == "frontend":
-                target = "frontend"
-            else:
-                target = "backend"
-
-            if is_matched:
-                skills_by_category[target].insert(0, skill)
-            else:
-                skills_by_category[target].append(skill)
-
-    if not any(skills_by_category.values()):
+    if not category_html:
         return ""
 
-    html = '<div class="skills-container">\n<h2>Technical Skills</h2>\n'
-    for cat in category_order:
-        skills = skills_by_category.get(cat, [])
-        if skills:
-            label = category_labels.get(cat, cat.title())
-            skill_items = ", ".join(skills)
-            html += f'<div class="skill-category"><strong>{label}:</strong> {skill_items}</div>\n'
-    html += "</div>"
-    return html
+    return '<div class="skills-container">\n<h2>Skills</h2>\n' + "\n".join(category_html) + "\n</div>"
 
 
 def render_experience(profile: dict, tailor_result) -> str:

@@ -88,7 +88,7 @@ python setup.py
 
 # 3. Edit your config files (required before first run)
 #    .env                  — set EMAIL_USER, EMAIL_PASS, DJANGO_SECRET_KEY
-#    config/profile.py    — fill in your real profile data
+#    profile.json          — filled in by the setup.py wizard, or the /profile page
 
 # 4. Run (development)
 python manage.py runserver       # Terminal 1 — Django on :8000
@@ -105,9 +105,10 @@ Open **http://localhost:5173** — the Vite dev server proxies API calls to Djan
 | 2 | Installs [uv](https://docs.astral.sh/uv/) if missing |
 | 3 | Installs Python dependencies (`uv sync`) |
 | 4 | Copies `.env.example` → `.env` (skips if exists) |
-| 5 | Copies `config/profile.example.py` → `config/profile.py` (skips if exists) |
-| 6 | Runs database migrations |
-| 7 | Installs frontend dependencies (`npm install`) |
+| 5 | Creates `profile.json` from safe defaults (skips if exists) |
+| 6 | Runs the interactive profile wizard (first install, or `--profile`) |
+| 7 | Runs database migrations |
+| 8 | Installs frontend dependencies (`npm install`) |
 
 ---
 
@@ -180,40 +181,52 @@ EMAIL_PASS=your-gmail-app-password
 
 ### 5. Create your candidate profile
 
+`profile.json` (at the project root) is the **single source of truth** for the
+job matcher, CV engine, and cover-letter engine. It works for any profession —
+nurse, teacher, accountant, software developer, whatever.
+
+The simplest way is the interactive wizard:
+
 ```bash
-copy config\profile.example.py config\profile.py    # Windows
-# cp config/profile.example.py config/profile.py    # macOS/Linux
+python setup.py --profile
 ```
 
-Edit `config/profile.py` with your real info:
+Or create it by hand as `profile.json`:
 
-```python
-CANDIDATE_PROFILE = {
-    "name": "John Doe",
-    "email": "john@example.com",
-    "phone": "+91-9876543210",
-    "experience_min": 2,
-    "experience_max": 5,
+```json
+{
+  "PROFILE": {
+    "name": "Maya Nurse",
+    "email": "maya@example.com",
+    "phone": "555-0100",
+    "profession": "Healthcare",
+    "role": "Registered Nurse",
+    "experience_years": 6,
+    "location": "Kochi",
+    "country": "India",
+    "currency": "INR",
+    "min_salary": 35000,
     "skills": {
-        "backend": ["python", "django", "fastapi", "postgresql"],
-        "frontend": ["react", "javascript", "typescript"],
-        "ai_llm": ["langchain", "openai api"],
-        "cloud": ["aws", "docker"],
-        "devops": ["github actions", "nginx"],
-        "tools": ["git", "linux", "redis"],
+      "patient_care": ["wound care", "medication administration"],
+      "qualifications": ["BSc Nursing", "Registered Nurse License"]
     },
     "projects": [
-        {
-            "name": "ProjectX",
-            "description": "Real-time analytics dashboard",
-            "tech": ["django", "channels", "react", "postgresql"],
-        }
+      {
+        "name": "City General ER",
+        "description": "Reduced triage wait times by 20%"
+      }
     ],
-    "looking_for": ["python developer", "django developer", "full stack developer"],
+    "looking_for": ["staff nurse", "charge nurse"],
+    "languages": ["English", "Malayalam"]
+  }
 }
 ```
 
-You can also edit your profile from the dashboard at **http://localhost:8000/profile/** — changes take effect on the next fetch cycle without restarting.
+`profile.json` is created automatically with safe defaults by `setup.py`, so the
+app boots with zero configuration. An old `config/profile.py` (if present) is
+still honored as a legacy fallback, but `profile.json` wins. You can also edit
+your profile from the dashboard at **http://localhost:8000/profile/** — changes
+take effect on the next fetch cycle without restarting.
 
 ### 6. Run database migrations
 
@@ -425,11 +438,12 @@ JobbLoot/
 │   ├── settings/               # base.py, dev.py, prod.py, test.py
 │   ├── queries.py              # Search queries per source
 │   ├── constants.py            # Role rejection keywords, filters
-│   ├── profile.example.py      # Template profile
+│   ├── profile.example.py      # Legacy template (gitignored; profile.json wins)
 │   ├── urls.py                 # Root URL configuration
 │   ├── asgi.py                 # ASGI application
 │   └── wsgi.py                 # WSGI application
 ├── common/                     # Shared utilities
+│   ├── profession_packs.py     # Profession pack loader/detector/composer
 │   └── utils.py                # Email detection, UID generation, HTML cleaning
 ├── frontend/                   # React SPA
 │   ├── src/
@@ -479,15 +493,23 @@ JobbLoot/
 
 ### Match thresholds
 
-Edit `config/settings/base.py`:
+Configure from `.env` (or edit the defaults in `config/settings/base.py`):
+
+```env
+MIN_SALARY=18000              # Minimum monthly salary (in your profile currency)
+MAX_SALARY=400000             # Maximum monthly salary (in your profile currency)
+TIME_ZONE=Asia/Kolkata
+```
 
 ```python
 MATCH_THRESHOLD_TRACK = 50      # Minimum % to track a job
 MATCH_THRESHOLD_APPLY = 65      # Minimum % to include in apply queue
-MIN_SALARY = 18000              # Minimum salary filter
 MAX_SKILL_GAP_PCT = 40          # Skip jobs needing >40% unknown skills
 MAX_SALARY_GAP_PCT = 50         # Skip if salary gap exceeds 50%
 ```
+
+Job salaries are compared in the **profile's currency** (e.g. a profile that
+wants USD will gate an INR salary through a small static FX table).
 
 ### Search queries
 
@@ -517,7 +539,7 @@ REJECT_ROLE_KEYWORDS = [
 
 ## Security
 
-- `.env`, `config/profile.py`, `profile.json`, `media/`, `db.sqlite3` — all gitignored
+- `.env`, `config/profile.py` (legacy), `profile.json`, `media/`, `db.sqlite3` — all gitignored
 - Credentials stored with **Fernet encryption** (cryptography library)
 - Django CSRF, X-Frame-Options, Content-Type nosniff, HttpOnly cookies enabled
 - No raw SQL, no `eval`/`exec` — Django ORM throughout

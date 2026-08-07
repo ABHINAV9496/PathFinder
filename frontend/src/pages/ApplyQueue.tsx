@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
+import { jobFilterParams } from "../hooks/useJobFilters";
+import JobFilters from "../components/JobFilters";
 import { ListItemSkeleton } from "../components/Skeleton";
 import type { Job, PaginatedResponse } from "../types";
 
@@ -32,16 +34,17 @@ export default function ApplyQueue() {
   const [applyingSingle, setApplyingSingle] = useState<number | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [page, setPage] = useState(1);
+  const [searchParams] = useSearchParams();
   const progressTimer = useRef<ReturnType<typeof setInterval>>();
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const loadData = useCallback(() => {
     setLoading(true);
-    api.applyQueue.list({ page: String(page) }).then((d) => {
+    api.applyQueue.list({ page: String(page), ...jobFilterParams(searchParams) }).then((d) => {
       setData(d);
       setLoading(false);
     });
-  }, [page]);
+  }, [page, searchParams]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -164,6 +167,9 @@ export default function ApplyQueue() {
           )}
         </div>
       </div>
+
+      {/* Filters */}
+      <JobFilters />
 
       {/* Select all */}
       {!loading && data && data.results.length > 0 && (

@@ -2,6 +2,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from app.config import SKILL_WEIGHTS, SKILL_ALIASES, SKILL_CATEGORIES
+from app.core.profile_skills import flatten_skills, resolve_skills
 
 
 @dataclass
@@ -28,25 +29,31 @@ def normalize(text: str) -> str:
     return text.lower()
 
 
-def extract_keywords(jd_text: str) -> dict:
+def extract_keywords(jd_text: str, skill_weights: dict = None,
+                     skill_categories: dict = None) -> dict:
     jd_lower = jd_text.lower()
+    if not skill_weights:
+        skill_weights = SKILL_WEIGHTS
+    if not skill_categories:
+        skill_categories = SKILL_CATEGORIES
+
+    must_have_skills = [s.lower() for s in skill_categories.get("must_have", [])]
+    nice_to_have_skills = [s.lower() for s in skill_categories.get("nice_to_have", [])]
+
     must_have = []
     nice_to_have = []
     tools = []
     concepts = []
     soft_skills = []
 
-    for skill, weight in SKILL_WEIGHTS.items():
-        aliases = [skill] + SKILL_ALIASES.get(skill, [])
-        for alias in aliases:
-            if alias.lower() in jd_lower:
-                if skill in [s.lower() for s in SKILL_CATEGORIES.get("must_have", [])]:
-                    must_have.append(skill)
-                elif skill in [s.lower() for s in SKILL_CATEGORIES.get("nice_to_have", [])]:
-                    nice_to_have.append(skill)
-                else:
-                    tools.append(skill)
-                break
+    for skill in skill_weights:
+        if skill.lower() in jd_lower:
+            if skill.lower() in must_have_skills:
+                must_have.append(skill)
+            elif skill.lower() in nice_to_have_skills:
+                nice_to_have.append(skill)
+            else:
+                tools.append(skill)
 
     concept_signals = ["api", "microservice", "rest", "authentication", "authorization",
                        "ci/cd", "cicd", "database", "orm", "mvc", "mvt"]
@@ -69,10 +76,12 @@ def extract_keywords(jd_text: str) -> dict:
     }
 
 
-def map_skills(jd_text: str, profile_skills: dict, aliases: dict = None) -> tuple[list[str], dict[str, int]]:
+def map_skills(jd_text: str, profile_skills: dict, aliases: dict = None,
+               weights: dict = None) -> tuple[list[str], dict[str, int]]:
     jd_lower = jd_text.lower()
     matched = []
     breakdown = {}
+    weights = weights or SKILL_WEIGHTS
 
     all_skills = []
     for cat_skills in profile_skills.values():
@@ -83,7 +92,7 @@ def map_skills(jd_text: str, profile_skills: dict, aliases: dict = None) -> tupl
         skill_aliases = [skill_lower] + [a.lower() for a in (aliases or SKILL_ALIASES).get(skill_lower, [])]
         for alias in skill_aliases:
             if alias in jd_lower or alias.replace(" ", "") in jd_lower.replace(" ", ""):
-                weight = SKILL_WEIGHTS.get(skill_lower, 3)
+                weight = weights.get(skill_lower, 3)
                 if skill not in matched:
                     matched.append(skill)
                     breakdown[skill] = weight
@@ -162,29 +171,27 @@ def select_highlights(entry: dict, matched_skills: list[str], total_entries: int
 
 def build_summary(profile: dict, job: dict, matched_skills: list[str],
                    company_context: dict = None) -> str:
-    role = job.get("title", "") or profile.get("role", "Full Stack Developer")
+    role = job.get("title", "") or profile.get("role", "Professional")
     exp_years = profile.get("experience_years", 1)
-    matched_text = ", ".join(matched_skills[:5]) if matched_skills else "Python, Django, and React"
-
-    focus_areas = []
-    must_have = []
-    if company_context:
-        focus_areas = company_context.get("key_focus_areas", [])
-        must_have = company_context.get("must_have_keywords", [])
+    if matched_skills:
+        strengths = ", ".join(matched_skills[:5])
+    else:
+        all_skills = flatten_skills(profile)
+        strengths = ", ".join(all_skills[:5]) if all_skills else "industry-standard tools"
 
     summary = (
-        f"{role} with {exp_years} year{'s' if exp_years != 1 else ''} of production experience "
-        f"building applications with {matched_text}. "
+        f"{role} with {exp_years} year{'s' if exp_years != 1 else ''} of professional "
+        f"experience, skilled in {strengths}. "
     )
 
+    focus_areas = []
+    if company_context:
+        focus_areas = company_context.get("key_focus_areas", [])
     if focus_areas:
         focus_text = ", ".join(focus_areas[:4])
-        summary += f"Specializing in {focus_text}. "
+        summary += f"Proven record of delivering results across {focus_text}. "
 
-    summary += (
-        "Experienced in designing scalable REST APIs, building responsive frontends "
-        "with React, and delivering clean, maintainable full-stack solutions."
-    )
+    summary += "Focused on producing high-quality, measurable outcomes and continuous improvement."
 
     return summary
 
@@ -219,15 +226,17 @@ def calculate_ats(jd_text: str, cv_text: str, skill_weights: dict = None) -> tup
 
 
 def tailor_cv(job: dict, profile: dict, skill_weights: dict = None,
-              aliases: dict = None, company_context: dict = None) -> TailorResult:
-    if not skill_weights:
-        skill_weights = SKILL_WEIGHTS
-    if not aliases:
-        aliases = SKILL_ALIASES
+              aliases: dict = None, categories: dict = None,
+              company_context: dict = None) -> TailorResult:
+    if not skill_weights or not aliases or not categories:
+        resolved_weights, resolved_aliases, resolved_categories = resolve_skills(profile)
+        skill_weights = skill_weights or resolved_weights
+        aliases = aliases or resolved_aliases
+        categories = categories or resolved_categories
 
     jd_text = f"{job.get('title', '')} {job.get('description', '')}"
 
-    matched_skills, breakdown = map_skills(jd_text, profile.get("skills", {}), aliases)
+    matched_skills, breakdown = map_skills(jd_text, profile.get("skills", {}), aliases, skill_weights)
 
     if company_context:
         company_tech = company_context.get("tech_stack", [])
@@ -235,7 +244,7 @@ def tailor_cv(job: dict, profile: dict, skill_weights: dict = None,
             if skill.lower() in [s.lower() for s in company_tech]:
                 breakdown[skill] = breakdown.get(skill, 3) * 1.5
 
-    keywords = extract_keywords(jd_text)
+    keywords = extract_keywords(jd_text, skill_weights, categories)
 
     experience_order = select_experience(profile, matched_skills, job.get("description", ""))
     total_entries = len(experience_order)

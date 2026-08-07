@@ -1,30 +1,59 @@
-import json
-import re
 import logging
-import time
-from datetime import date
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date
 
 import httpx
 from django.db.models import Count
 
-from apps.jobs.models import Job, Application, SkillLog, DailyStats, RawJob, JobEvent
+from apps.jobs.models import Application, DailyStats, Job, JobEvent, RawJob, SkillLog
+from common.utils import (
+    EMAIL_REGEX,
+    html_to_markdown,
+    is_junk_company_name,
+)
+from common.utils import (
+    is_company_email as _validate_company_email,
+)
 from config.constants import RECRUITER_KEYWORDS
-from config.settings import MIN_SALARY
-from common.utils import is_company_email as _validate_company_email, EMAIL_REGEX, JUNK_DOMAINS, html_to_markdown
 
 logger = logging.getLogger(__name__)
 
+CURRENCY_SYMBOLS = {
+    "INR": "₹",
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+}
+
+# Static rough FX table (anchored to INR) used for salary comparisons in the
+# profile's currency. Approximate only -- good enough for a match gate.
+FX_TO_INR = {
+    "INR": 1.0,
+    "USD": 83.0,
+    "EUR": 90.0,
+    "GBP": 105.0,
+}
+
+
+def convert_currency(amount: float, from_currency: str, to_currency: str) -> float:
+    """Rough-convert ``amount`` between supported currencies via the static
+    INR-anchored FX table. Unknown or equal currencies pass through unchanged."""
+    frm = (from_currency or "").upper()
+    to = (to_currency or "").upper()
+    if frm == to or frm not in FX_TO_INR or to not in FX_TO_INR:
+        return float(amount)
+    return float(amount) * FX_TO_INR[frm] / FX_TO_INR[to]
+
 SALARY_PATTERNS = [
-    r"(?:upto|up\s*to|max|maximum|capped?\s*at)\s*[\u20b9\uffe0Rs\.]*\s*(\d[\d,]*)\s*(?:[-\u2013to]+\s*[\u20b9\uffe0Rs\.]*\s*(\d[\d,]*))?\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?)",
-    r"[\u20b9\uffe0Rs\.]+\s*(\d[\d,]*)\s*[-\u2013to]+\s*[\u20b9\uffe0Rs\.]*\s*(\d[\d,]*)\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly)?",
-    r"[\u20b9\uffe0Rs\.]+\s*(\d[\d,]*)\s*/?-?\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|k\b)",
-    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*[\u20b9\uffe0Rs\.INR]*\s*(\d[\d,]*)\s*[-\u2013to]+\s*(\d[\d,]*)\s*(?:lpa|lakhs?|k|per\s*month|pm|monthly)?",
-    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*[\u20b9\uffe0Rs\.INR]*\s*(\d[\d,]*)\s*(?:lpa|lakhs?|k|per\s*month|pm|monthly|per\s*annum|p\.?a\.?|/month)",
-    r"(\d[\d,]*)\s*[-\u2013to]+\s*(\d[\d,]*)\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?)",
-    r"(\d[\d,]*)\s*[-\u2013to]+\s*(\d[\d,]*)\s*(?:k|,?000)\s*(?:per\s*month|pm|monthly|/month)?",
-    r"(\d[\d,]*)\s*(?:lpa|lakhs?|per\s*annum|p\.?a\.?)",
-    r"(\d[\d,]*)\s*(?:k|,?000)\s*(?:per\s*month|pm|monthly|/month)",
+    r"(?:upto|up\s*to|max|maximum|capped\s*at)\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*)\s*(?:[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*))?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year|k)",
+    r"(?:[₹$€£]|Rs\.?|INR)\s*(\d[\d,]*)\s*[kK]?\s*[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR)?\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year)?",
+    r"(?:[₹$€£]|Rs\.?|INR)\s*(\d[\d,]*)\s*/?-?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|k\b|\/yr|\/year)?",
+    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*(?:[₹$€£]|Rs\.?|INR|USD)?\s*(\d[\d,]*)\s*[kK]?\s*[-–—to]+\s*(?:[₹$€£]|Rs\.?|INR|USD)?\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*month|pm|monthly|per\s*annum|p\.?a\.?|\/month|\/yr|\/year)?",
+    r"(?:ctc|stipend|salary|package|compensation|pay)\s*[:\s]*(?:[₹$€£]|Rs\.?|INR|USD)?\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*month|pm|monthly|per\s*annum|p\.?a\.?|\/month|\/yr|\/year)?",
+    r"(\d[\d,]*)\s*[kK]?\s*[-–—to]+\s*(\d[\d,]*)\s*[kK]?\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|per\s*hour|hr|\/yr|\/year)?",
+    r"(\d[\d,]*)\s*(lpa|lakhs?|per\s*annum|p\.?a\.?|per\s*month|pm|monthly|k\b|\/yr|\/year)",
+    r"(\d[\d,]*)\s*(?:k|,?000)\s*(?:per\s*month|pm|monthly|\/month)",
 ]
 
 _SALARY_NEGATIVE = [
@@ -34,16 +63,51 @@ _SALARY_NEGATIVE = [
     "you pay", "candidate pays", "participant pays",
 ]
 
-
-def _format_salary(amount: int) -> str:
-    if amount >= 100000:
-        return f"\u20b9{amount // 100000}L PA"
-    elif amount >= 1000:
-        return f"\u20b9{amount // 1000}K"
-    return f"\u20b9{amount:,}"
+_ANNUAL_UNITS = {"lpa", "lakh", "lakhs", "per annum", "p.a.", "pa", "/yr", "/year"}
+_MONTHLY_UNITS = {"per month", "pm", "monthly", "/month"}
+_HOURLY_UNITS = {"per hour", "hr"}
 
 
-def _extract_salary_from_text(text: str) -> tuple[int, str]:
+def _format_salary(amount: int, currency: str = "INR") -> str:
+    symbol = CURRENCY_SYMBOLS.get(str(currency).upper(), str(currency))
+    if amount >= 100000 and str(currency).upper() == "INR":
+        return f"{symbol}{amount // 100000}L PA"
+    if amount >= 1000:
+        return f"{symbol}{amount // 1000}K"
+    return f"{symbol}{amount:,}"
+
+
+def _detect_currency(window: str) -> str:
+    if "€" in window or " eur" in window:
+        return "EUR"
+    if "£" in window or " gbp" in window:
+        return "GBP"
+    if "$" in window or "usd" in window:
+        return "USD"
+    return "INR"
+
+
+def _is_indian_salary(window: str) -> bool:
+    return "₹" in window or "inr" in window or "lpa" in window or "lakh" in window
+
+
+def _annualize(number: int, unit: str) -> int:
+    unit = (unit or "").strip().lower()
+    if "k" in unit:
+        number *= 1000
+        unit = unit.replace("k", "").strip()
+    if unit in _ANNUAL_UNITS:
+        if unit in {"lpa", "lakh", "lakhs"} and number < 100000:
+            number *= 100000
+        return number
+    if unit in _MONTHLY_UNITS:
+        return number * 12
+    if unit in _HOURLY_UNITS:
+        return number * 2080
+    return number
+
+
+def _extract_salary_from_text(text: str, min_salary: int = 0) -> tuple[int, str]:
     text_lower = text.lower()
 
     if any(w in text_lower for w in [
@@ -56,13 +120,15 @@ def _extract_salary_from_text(text: str) -> tuple[int, str]:
         for m in matches:
             groups = m.groups()
             numbers = []
+            unit = ""
             for g in groups:
-                if g:
-                    clean = g.replace(",", "").replace(" ", "")
-                    try:
-                        numbers.append(int(clean))
-                    except ValueError:
-                        pass
+                if not g:
+                    continue
+                clean = g.strip().replace(",", "").replace(" ", "")
+                if clean.isdigit():
+                    numbers.append(int(clean))
+                elif not unit:
+                    unit = g.strip().lower()
 
             if not numbers:
                 continue
@@ -75,29 +141,29 @@ def _extract_salary_from_text(text: str) -> tuple[int, str]:
             if any(neg in context for neg in _SALARY_NEGATIVE):
                 continue
 
-            has_annual_ctx = "lpa" in context or "lakhs" in context or "lakh" in context or "per annum" in context or "p.a." in context
-            has_monthly_ctx = "per month" in context or "pm" in context or "monthly" in context or "/month" in context
-            has_k_ctx = "k" in context and not has_annual_ctx
+            indian = _is_indian_salary(context)
+            if not unit:
+                if any(w in context for w in ("per hour", "per hr", "/hr", "hourly")):
+                    unit = "per hour"
+                elif any(w in context for w in ("per month", "/month", "monthly", " per mo")):
+                    unit = "per month"
+                elif any(w in context for w in ("per annum", "p.a.", "/yr", "/year")):
+                    unit = "per annum"
+                elif "k" in context:
+                    unit = "k"
 
-            if has_annual_ctx:
-                if salary < 100000:
-                    salary = salary * 100000
-            elif has_monthly_ctx:
-                if has_k_ctx:
-                    salary = salary * 1000
-                salary = salary * 12
-            elif has_k_ctx:
-                salary = salary * 1000
-            elif salary < 1000:
-                salary = salary * 1000
-            elif salary >= 1000 and salary < 100000:
-                salary = salary * 100000
+            if indian and not unit and 1000 <= salary < 100000:
+                salary *= 100000
+            else:
+                salary = _annualize(salary, unit)
 
             if salary > 50000000:
                 continue
 
-            if salary >= MIN_SALARY:
-                return salary, _format_salary(salary)
+            if min_salary and salary < min_salary:
+                continue
+
+            return salary, _format_salary(salary, _detect_currency(context))
 
     return 0, ""
 
@@ -270,7 +336,10 @@ def save_application(job: Job, result: dict) -> Application:
         job=job,
         defaults={
             "email_subject": result.get("email_subject", ""),
-            "cover_letter_text": result.get("cover_letter", "") or (existing.cover_letter_text if existing else ""),
+            "cover_letter_text": (
+                result.get("cover_letter", "")
+                or (existing.cover_letter_text if existing else "")
+            ),
             "status": "sent" if result.get("success") else "failed",
             "error_message": "" if result.get("success") else result.get("message", ""),
             "skills_highlighted": result.get("skills_highlighted", []),
@@ -328,14 +397,35 @@ def save_web_apply(job: Job, result: dict) -> Application:
     return app
 
 
-def update_daily_stats():
+def update_daily_stats(
+    fetched: int | None = None,
+    matched: int | None = None,
+    applied: int | None = None,
+    ignored: int | None = None,
+    failed: int | None = None,
+):
     today = date.today()
     stats, _ = DailyStats.objects.get_or_create(date=today)
-    stats.total_fetched = RawJob.objects.filter(fetched_at__date=today).count()
-    stats.total_matched = JobEvent.objects.filter(event_type="matched", created_at__date=today).count()
-    stats.total_applied = Application.objects.filter(sent_at__date=today, status="sent").count()
-    stats.total_ignored = JobEvent.objects.filter(event_type="ignored", created_at__date=today).count()
-    stats.total_failed = Application.objects.filter(sent_at__date=today, status="failed").count()
+    stats.total_fetched = (
+        fetched if fetched is not None
+        else RawJob.objects.filter(fetched_at__date=today).count()
+    )
+    stats.total_matched = (
+        matched if matched is not None
+        else JobEvent.objects.filter(event_type="matched", created_at__date=today).count()
+    )
+    stats.total_applied = (
+        applied if applied is not None
+        else Application.objects.filter(sent_at__date=today, status="sent").count()
+    )
+    stats.total_ignored = (
+        ignored if ignored is not None
+        else JobEvent.objects.filter(event_type="ignored", created_at__date=today).count()
+    )
+    stats.total_failed = (
+        failed if failed is not None
+        else Application.objects.filter(sent_at__date=today, status="failed").count()
+    )
 
     top_skills = (
         SkillLog.objects
@@ -384,6 +474,9 @@ def is_company_email(email: str, company: str = "") -> bool:
     if not is_valid:
         return False
 
+    if company and is_junk_company_name(company):
+        return False
+
     email = email.lower().strip()
     domain = email.split("@")[1]
 
@@ -410,11 +503,34 @@ def _extract_emails_from_text(text: str) -> list[str]:
     return [e.lower() for e in raw if is_company_email(e)]
 
 
+def _company_domain_related(email: str, company: str) -> bool:
+    """True when the email's domain plausibly belongs to ``company``.
+
+    Job-board pages (e.g. Cutshort) interleave emails from several companies,
+    so an email scraped from such a page is only trusted when its domain
+    overlaps the company's name. Sub-domains and 'Name.ai'-style suffixes are
+    handled by comparing the registrable base against the name slug.
+    """
+    if not company:
+        return True
+    domain = email.lower().split("@")[-1]
+    slug = re.sub(r"[^a-z0-9]", "", company.lower())
+    if not slug or len(slug) < 3:
+        return False
+    if slug in domain:
+        return True
+    base = domain.split(".")[0]
+    return len(base) >= 3 and base in slug
+
+
 def _get_http_client() -> httpx.Client:
     return httpx.Client(
         http2=True, timeout=15, follow_redirects=True,
         headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         },
@@ -447,7 +563,9 @@ def find_job_salary(job: dict, client: httpx.Client | None = None) -> tuple[int,
         except Exception as e:
             logger.debug(f"  Page fetch failed for salary: {e}")
 
-        description = f"{job.get('title', '')} {job.get('description', '')} {job.get('full_text', '')}"
+        description = (
+            f"{job.get('title', '')} {job.get('description', '')} {job.get('full_text', '')}"
+        )
         return _extract_salary_from_text(description)
 
     finally:
@@ -524,7 +642,16 @@ def find_job_email(job: dict, client: httpx.Client | None = None) -> str:
             if resp.status_code == 200:
                 all_emails = _extract_emails_from_text(resp.text)
                 company = job.get("company", "")
-                emails = [e for e in all_emails if is_company_email(e, company)]
+                if is_junk_company_name(company):
+                    logger.info(f"  Skipping email scrape for unverifiable company: {company!r}")
+                    emails = []
+                elif company:
+                    emails = [
+                        e for e in all_emails
+                        if is_company_email(e, company) and _company_domain_related(e, company)
+                    ]
+                else:
+                    emails = all_emails
             else:
                 emails = []
         except Exception:

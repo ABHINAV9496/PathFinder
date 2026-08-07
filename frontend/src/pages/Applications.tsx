@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
+import { jobFilterParams } from "../hooks/useJobFilters";
+import JobFilters from "../components/JobFilters";
 import { ListItemSkeleton } from "../components/Skeleton";
 import type { Application, PaginatedResponse } from "../types";
 
@@ -138,16 +140,17 @@ export default function Applications() {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [data, setData] = useState<PaginatedResponse<Application> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     setLoading(true);
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = { ...jobFilterParams(searchParams) };
     if (status !== "all") params.status = status;
     api.applications.list(params).then((d) => {
       setData(d);
       setLoading(false);
     });
-  }, [status]);
+  }, [status, searchParams]);
 
   const totalCount = data?.count ?? 0;
   const sentCount = data?.results.filter((a) => a.status === "sent").length ?? 0;
@@ -177,6 +180,8 @@ export default function Applications() {
           </div>
         </div>
       </div>
+
+      <JobFilters />
 
       <div className="ap-filters">
         {(["all", "sent", "failed"] as StatusFilter[]).map((s) => {

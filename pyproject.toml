@@ -28,6 +28,7 @@ dependencies = [
     "jobdrop>=0.1.0",
     "xhtml2pdf>=0.2.15",
     "pypdf>=5.0.0",
+    "duckdb>=1.0.0",
 ]
 
 [dependency-groups]
@@ -43,7 +44,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
-testpaths = ["tests", "apps"]
+testpaths = ["tests", "apps", "cv-engine", "cover-letter-engine"]
 
 [tool.ruff]
 line-length = 100

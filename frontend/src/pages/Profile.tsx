@@ -11,7 +11,13 @@ interface ProfileData {
   github: string;
   linkedin: string;
   portfolio: string;
+  website: string;
   role: string;
+  profession: string;
+  country: string;
+  timezone: string;
+  currency: string;
+  min_salary: number;
   experience_years: number;
   experience_min: number;
   experience_max: number;
@@ -123,6 +129,26 @@ export default function Profile() {
         .map((s) => s.trim())
         .filter(Boolean),
     };
+    setProfile({ ...profile, skills });
+  };
+
+  const [newCatName, setNewCatName] = useState("");
+
+  const addSkillCategory = () => {
+    if (!profile || !newCatName.trim()) return;
+    const name = newCatName.trim().toLowerCase().replace(/\s+/g, "_");
+    if (profile.skills?.[name]) {
+      setNewCatName("");
+      return;
+    }
+    setProfile({ ...profile, skills: { ...(profile.skills || {}), [name]: [] } });
+    setNewCatName("");
+  };
+
+  const removeSkillCategory = (category: string) => {
+    if (!profile) return;
+    const skills = { ...(profile.skills || {}) };
+    delete skills[category];
     setProfile({ ...profile, skills });
   };
 
@@ -280,6 +306,7 @@ export default function Profile() {
           <h2>{profile.name || "Unnamed"}</h2>
           <p>
             {profile.role}
+            {profile.profession ? ` · ${profile.profession}` : ""}
             {profile.location ? ` · ${profile.location}` : ""}
           </p>
         </div>
@@ -299,19 +326,45 @@ export default function Profile() {
               <input className="pf-input" type="tel" value={profile.phone || ""} onChange={(e) => set("phone", e.target.value)} placeholder="+91 98765 43210" />
             </FormField>
             <FormField label="Role / Title">
-              <input className="pf-input" type="text" value={profile.role || ""} onChange={(e) => set("role", e.target.value)} required />
+              <input className="pf-input" type="text" value={profile.role || ""} onChange={(e) => set("role", e.target.value)} required placeholder="e.g. Registered Nurse" />
+            </FormField>
+            <FormField label="Profession" hint="Your field or industry">
+              <input className="pf-input" type="text" value={profile.profession || ""} onChange={(e) => set("profession", e.target.value)} placeholder="e.g. Healthcare, Education, Finance" />
             </FormField>
             <FormField label="Location">
-              <input className="pf-input" type="text" value={profile.location || ""} onChange={(e) => set("location", e.target.value)} required />
+              <input className="pf-input" type="text" value={profile.location || ""} onChange={(e) => set("location", e.target.value)} required placeholder="e.g. Kochi, Kerala" />
             </FormField>
-            <FormField label="GitHub" hint="github.com/username">
+            <FormField label="Country">
+              <input className="pf-input" type="text" value={profile.country || ""} onChange={(e) => set("country", e.target.value)} placeholder="e.g. India" />
+            </FormField>
+            <FormField label="GitHub" hint="github.com/username (optional)">
               <input className="pf-input" type="text" value={profile.github || ""} onChange={(e) => set("github", e.target.value)} placeholder="github.com/username" />
             </FormField>
-            <FormField label="LinkedIn" hint="linkedin.com/in/username">
+            <FormField label="LinkedIn" hint="linkedin.com/in/username (optional)">
               <input className="pf-input" type="text" value={profile.linkedin || ""} onChange={(e) => set("linkedin", e.target.value)} placeholder="linkedin.com/in/username" />
             </FormField>
-            <FormField label="Portfolio" hint="Personal website URL">
-              <input className="pf-input" type="url" value={profile.portfolio || ""} onChange={(e) => set("portfolio", e.target.value)} placeholder="https://yoursite.com" />
+            <FormField label="Portfolio / Website" hint="Personal website URL (optional)">
+              <input className="pf-input" type="url" value={profile.website || profile.portfolio || ""} onChange={(e) => set("website", e.target.value)} placeholder="https://yoursite.com" />
+            </FormField>
+          </div>
+        </SectionCard>
+
+        {/* Salary / Currency */}
+        <SectionCard title="Salary & Currency" description="How you want job salaries compared when matching.">
+          <div className="pf-grid pf-grid-3">
+            <FormField label="Currency" hint="Salaries are compared in this currency">
+              <select className="pf-input pf-select" value={profile.currency || "USD"} onChange={(e) => set("currency", e.target.value)}>
+                <option value="USD">USD</option>
+                <option value="INR">INR</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+              </select>
+            </FormField>
+            <FormField label="Minimum monthly salary" hint="Jobs below this are filtered out">
+              <input className="pf-input" type="number" min={0} value={profile.min_salary || 0} onChange={(e) => set("min_salary", parseInt(e.target.value) || 0)} />
+            </FormField>
+            <FormField label="Timezone" hint="e.g. Asia/Kolkata">
+              <input className="pf-input" type="text" value={profile.timezone || ""} onChange={(e) => set("timezone", e.target.value)} placeholder="Asia/Kolkata" />
             </FormField>
           </div>
         </SectionCard>
@@ -403,7 +456,7 @@ export default function Profile() {
                     const newExp = [...(profile.experience || [])];
                     newExp[i] = { ...newExp[i], tech: e.target.value.split(",").map(s => s.trim()).filter(Boolean) };
                     set("experience", newExp as any);
-                  }} placeholder="e.g. Django, React, PostgreSQL" />
+                  }} placeholder="e.g. tools, software, or techniques you used" />
                 </FormField>
               </div>
               <FormField label="Highlights" hint="One per line — key achievements in this role">
@@ -416,7 +469,7 @@ export default function Profile() {
                     set("experience", newExp as any);
                   }}
                   rows={3}
-                  placeholder={"Built microservice handling 10K requests/sec\nReduced API latency by 40%\nLed team of 3 junior developers"}
+                  placeholder={"Reduced wait times by 20%\nLed a team of 5\nImproved accuracy of routine tasks"}
                 />
               </FormField>
             </div>
@@ -445,19 +498,50 @@ export default function Profile() {
         </SectionCard>
 
         {/* Skills */}
-        <SectionCard title="Skills" description="Comma-separated lists per category. Used for job matching and scoring.">
+        <SectionCard title="Skills" description="Comma-separated skills per category. Used for job matching and scoring.">
           <div className="pf-grid pf-grid-2">
             {Object.entries(profile.skills || {}).map(([category, skillList]) => (
-              <FormField key={category} label={category.replace(/_/g, " ")} className="pf-field-capitalize">
+              <div key={category} className="pf-skill-cat">
+                <div className="pf-skill-cat-head">
+                  <span className="pf-skill-cat-label">{category.replace(/_/g, " ")}</span>
+                  <button
+                    type="button"
+                    className="pf-skill-cat-remove"
+                    onClick={() => removeSkillCategory(category)}
+                    title={`Remove ${category.replace(/_/g, " ")} category`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
                 <input
                   className="pf-input"
                   type="text"
                   value={(skillList || []).join(", ")}
                   onChange={(e) => setSkill(category, e.target.value)}
-                  placeholder="e.g. Django, React, PostgreSQL"
+                  placeholder="Comma-separated skills, e.g. wound care, medication administration"
                 />
-              </FormField>
+              </div>
             ))}
+          </div>
+          <div className="pf-skill-add">
+            <input
+              className="pf-input"
+              type="text"
+              value={newCatName}
+              onChange={(e) => setNewCatName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSkillCategory(); } }}
+              placeholder="New category, e.g. patient_care"
+            />
+            <button type="button" className="pf-btn-add" onClick={addSkillCategory}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add category
+            </button>
           </div>
         </SectionCard>
 
@@ -519,10 +603,10 @@ export default function Profile() {
               </div>
               <div className="pf-grid pf-grid-2">
                 <FormField label="Name">
-                  <input className="pf-input" type="text" value={proj.name} onChange={(e) => updateProject(i, "name", e.target.value)} placeholder="e.g. EchOo" />
+                  <input className="pf-input" type="text" value={proj.name} onChange={(e) => updateProject(i, "name", e.target.value)} placeholder="e.g. City General ER Project" />
                 </FormField>
                 <FormField label="Tech stack">
-                  <input className="pf-input" type="text" value={proj.tech} onChange={(e) => updateProject(i, "tech", e.target.value)} placeholder="e.g. Django, React, PostgreSQL" />
+                  <input className="pf-input" type="text" value={proj.tech} onChange={(e) => updateProject(i, "tech", e.target.value)} placeholder="e.g. tools, equipment, or methods" />
                 </FormField>
               </div>
               <FormField label="Description">

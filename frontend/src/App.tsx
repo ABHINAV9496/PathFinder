@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import { FetcherProvider, useFetcher } from "./FetcherProgress";
+import { api } from "./api/client";
 import Overview from "./pages/Overview";
 import Jobs from "./pages/Jobs";
 import JobDetail from "./pages/JobDetail";
@@ -10,6 +12,7 @@ import SkillStats from "./pages/SkillStats";
 import CompanyStats from "./pages/CompanyStats";
 import LocationStats from "./pages/LocationStats";
 import Profile from "./pages/Profile";
+import Onboarding from "./pages/Onboarding";
 import ApplyQueue from "./pages/ApplyQueue";
 
 function Icon({ d, size = 18 }: { d: string; size?: number }) {
@@ -113,26 +116,55 @@ export default function App() {
   return (
     <BrowserRouter>
       <FetcherProvider>
-        <Sidebar />
-        <div className="app-content">
-          <FetcherBanner />
-          <main>
-            <Routes>
-              <Route path="/" element={<Overview />} />
-              <Route path="/jobs" element={<Jobs />} />
-              <Route path="/jobs/:id" element={<JobDetail />} />
-              <Route path="/applications" element={<Applications />} />
-              <Route path="/apply-queue" element={<ApplyQueue />} />
-              <Route path="/web-apply" element={<WebApply />} />
-              <Route path="/missing-emails" element={<MissingEmails />} />
-              <Route path="/stats/skills" element={<SkillStats />} />
-              <Route path="/stats/companies" element={<CompanyStats />} />
-              <Route path="/stats/locations" element={<LocationStats />} />
-              <Route path="/profile" element={<Profile />} />
-            </Routes>
-          </main>
-        </div>
+        <AppShell />
       </FetcherProvider>
     </BrowserRouter>
+  );
+}
+
+function AppShell() {
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.profile
+      .get()
+      .then((d: any) => {
+        const p = d.profile || d;
+        setNeedsOnboarding(!p.name);
+      })
+      .catch(() => setNeedsOnboarding(false));
+  }, []);
+
+  if (needsOnboarding === null) {
+    return null;
+  }
+
+  if (needsOnboarding) {
+    return <Onboarding onComplete={() => setNeedsOnboarding(false)} />;
+  }
+
+  return (
+    <>
+      <Sidebar />
+      <div className="app-content">
+        <FetcherBanner />
+        <main>
+          <Routes>
+            <Route path="/" element={<Overview />} />
+            <Route path="/jobs" element={<Jobs />} />
+            <Route path="/jobs/:id" element={<JobDetail />} />
+            <Route path="/applications" element={<Applications />} />
+            <Route path="/apply-queue" element={<ApplyQueue />} />
+            <Route path="/web-apply" element={<WebApply />} />
+            <Route path="/missing-emails" element={<MissingEmails />} />
+            <Route path="/stats/skills" element={<SkillStats />} />
+            <Route path="/stats/companies" element={<CompanyStats />} />
+            <Route path="/stats/locations" element={<LocationStats />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+          </Routes>
+        </main>
+      </div>
+    </>
   );
 }

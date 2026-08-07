@@ -47,3 +47,43 @@ NORTH_INDIA_STATES = [
     "haryana", "punjab", "rajasthan", "uttarakhand", "bihar", "gujarat",
     "himachal", "jammu", "kashmir",
 ]
+
+# General-purpose vocabulary of skills seen across job descriptions.
+# Used to compute skill gaps for ANY profession (not just software).
+COMMON_JD_SKILLS = {
+    # software / data
+    "python", "django", "drf", "flask", "fastapi", "node.js", "nodejs",
+    "java", "c++", "c#", "go", "golang", "rust", "scala", "ruby", "php",
+    "javascript", "typescript", "react", "react.js", "vue", "angular",
+    "graphql", "grpc", "microservices", "rest api", "kafka", "rabbitmq",
+    "elasticsearch", "solr", "spark", "hadoop", "airflow", "mongodb",
+    "cassandra", "dynamodb", "neo4j", "mysql", "postgresql", "redis",
+    "sql", "etl", "datalake", "data warehouse", "tableau", "power bi",
+    "looker", "pandas", "numpy", "machine learning", "deep learning",
+    "nlp", "llm", "prompt engineering", "computer vision", "mlops",
+    # cloud / infra
+    "aws", "ec2", "s3", "rds", "lambda", "gcp", "google cloud", "azure",
+    "kubernetes", "k8s", "docker", "terraform", "ci/cd", "jenkins",
+    "github actions", "linux", "nginx", "git",
+    # quality / testing
+    "selenium", "cypress", "playwright", "jest", "pytest", "junit",
+    "qa", "test automation",
+    # design / creative
+    "figma", "photoshop", "illustrator", "adobe xd", "sketch", "indesign",
+    "after effects", "premiere pro", "canva", "ux research", "wireframing",
+    "prototyping", "user testing", "design systems", "brand identity",
+    # marketing / growth
+    "seo", "sem", "content marketing", "email marketing", "social media",
+    "google analytics", "google ads", "meta ads", "crm", "copywriting",
+    "a/b testing", "growth hacking", "influencer marketing",
+    # business / operations
+    "excel", "powerpoint", "google sheets", "salesforce", "hubspot",
+    "project management", "agile", "scrum", "jira", "slack", "notion",
+    "lead generation", "negotiation", "presentation", "data analysis",
+    # security / ops
+    "cyber security", "penetration testing", "firewall", "soc",
+    # mobile / other tech
+    "flutter", "swift", "kotlin", "android", "ios", "react native",
+    "blockchain", "web3", "solidity", "unity", "unreal engine",
+    "wordpress", "shopify", "woocommerce",
+}

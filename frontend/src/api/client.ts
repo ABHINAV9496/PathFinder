@@ -1,4 +1,4 @@
-import type { PaginatedResponse, Job, JobDetail, Application, SecurityStatus, ResumeStatus, ApplyProgress, AIConfig, ATSScore } from "../types";
+import type { PaginatedResponse, Job, JobDetail, Application, SecurityStatus, ResumeStatus, ApplyProgress, AIConfig, ATSScore, FilterOptions } from "../types";
 
 const BASE = "/api/v1";
 
@@ -13,6 +13,9 @@ export const api = {
     list(params: Record<string, string> = {}): Promise<PaginatedResponse<Job>> {
       const qs = new URLSearchParams(params).toString();
       return get(`/jobs/${qs ? `?${qs}` : ""}`);
+    },
+    filters(): Promise<FilterOptions> {
+      return get("/jobs/filters/");
     },
     detail(id: number): Promise<JobDetail> {
       return get(`/jobs/${id}/`);
@@ -90,8 +93,9 @@ export const api = {
     },
   },
   stats: {
-    overview(): Promise<Record<string, unknown>> {
-      return get("/stats/overview/");
+    overview(params: Record<string, string> = {}): Promise<Record<string, unknown>> {
+      const qs = new URLSearchParams(params).toString();
+      return get(`/stats/overview/${qs ? `?${qs}` : ""}`);
     },
     skills(): Promise<Record<string, unknown>> {
       return get("/stats/skills/");
@@ -177,13 +181,15 @@ export const api = {
     },
   },
   webApply: {
-    list(): Promise<Record<string, unknown>> {
-      return get("/web-apply/");
+    list(params: Record<string, string> = {}): Promise<Record<string, unknown>> {
+      const qs = new URLSearchParams(params).toString();
+      return get(`/web-apply/${qs ? `?${qs}` : ""}`);
     },
   },
   missingEmails: {
-    list(): Promise<Record<string, unknown>> {
-      return get("/missing-emails/");
+    list(params: Record<string, string> = {}): Promise<Record<string, unknown>> {
+      const qs = new URLSearchParams(params).toString();
+      return get(`/missing-emails/${qs ? `?${qs}` : ""}`);
     },
   },
   fetcher: {

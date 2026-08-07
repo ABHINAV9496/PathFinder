@@ -3,8 +3,12 @@ import logging
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 
-from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
 from apps.jobs.models import Application, Job
+from apps.jobs.profile_manager import load_profile
+from apps.jobs.services.cover_letter_client import (
+    CoverLetterEngineUnavailableError,
+    generate_cover_letter,
+)
 from apps.jobs.views.base import BaseAPIView
 
 logger = logging.getLogger(__name__)
@@ -24,7 +28,25 @@ class GenerateTemplateCoverLetter(BaseAPIView):
             "skill_gaps": job_obj.skill_gaps or [],
         }
 
-        cover_letter, template_used = generate_cover_letter_template(job_dict)
+        profile = load_profile()
+
+        try:
+            result = generate_cover_letter(job_dict, profile, mode="template")
+            cover_letter = result.get("cover_letter", "")
+            template_used = result.get("template_used", "deterministic")
+        except CoverLetterEngineUnavailableError:
+            from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
+            cover_letter, template_used = generate_cover_letter_template(job_dict)
+            logger.warning(
+                "Cover letter engine down for job %d; used legacy template fallback",
+                job_obj.id,
+            )
+
+        if not cover_letter:
+            return self.error(
+                "Could not generate a cover letter. The cover letter service is unavailable.",
+                status.HTTP_502_BAD_GATEWAY,
+            )
 
         existing_app = Application.objects.filter(job=job_obj).first()
         if existing_app:

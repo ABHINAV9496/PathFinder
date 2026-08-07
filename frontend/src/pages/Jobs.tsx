@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { api } from "../api/client";
 import { JobCardSkeleton } from "../components/Skeleton";
+import JobFilters from "../components/JobFilters";
+import { jobFilterParams } from "../hooks/useJobFilters";
 import type { Job, PaginatedResponse } from "../types";
 
 const STATUSES = ["all", "new", "matched", "applied", "web_apply", "ignored"];
-const LOCATIONS = ["all", "kerala", "india", "remote"];
 const SALARIES = [
   { value: "all", label: "All" },
   { value: "has", label: "Has Salary" },
@@ -66,7 +67,6 @@ function StatusChip({ status }: { status: string }) {
 export default function Jobs() {
   const [searchParams, setSearchParams] = useSearchParams();
   const status = searchParams.get("status") || "all";
-  const location = searchParams.get("location") || "all";
   const salary = searchParams.get("salary") || "all";
   const sort = searchParams.get("sort") || "-match_score";
   const page = searchParams.get("page") || "1";
@@ -79,11 +79,18 @@ export default function Jobs() {
 
   useEffect(() => {
     setLoading(true);
-    api.jobs.list({ status, location, salary, sort, page, search: searchQuery }).then((d) => {
+    api.jobs.list({
+      status,
+      salary,
+      sort,
+      page,
+      search: searchQuery,
+      ...jobFilterParams(searchParams),
+    }).then((d) => {
       setData(d);
       setLoading(false);
     });
-  }, [status, location, salary, sort, page, searchQuery]);
+  }, [status, salary, sort, page, searchQuery, searchParams]);
 
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(searchParams);
@@ -103,7 +110,8 @@ export default function Jobs() {
     setParam("search", searchInput);
   }
 
-  const hasFilters = status !== "all" || location !== "all" || salary !== "all" || searchQuery !== "";
+  const hasFilters = status !== "all" || salary !== "all" || searchQuery !== "" ||
+    Object.keys(jobFilterParams(searchParams)).length > 0;
 
   return (
     <>
@@ -147,14 +155,7 @@ export default function Jobs() {
             onToggle={() => setOpenDropdown(openDropdown === "status" ? null : "status")}
             onSelect={(v) => setParam("status", v)}
           />
-          <Dropdown
-            label="Location"
-            value={location}
-            options={LOCATIONS.map(l => ({ value: l, label: l === "all" ? "All" : l.charAt(0).toUpperCase() + l.slice(1) }))}
-            open={openDropdown === "location"}
-            onToggle={() => setOpenDropdown(openDropdown === "location" ? null : "location")}
-            onSelect={(v) => setParam("location", v)}
-          />
+          <JobFilters />
           <Dropdown
             label="Salary"
             value={salary}

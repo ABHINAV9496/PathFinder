@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Chart, registerables } from "chart.js";
 import { api } from "../api/client";
 import { useFetcher } from "../FetcherProgress";
+import { jobFilterParams } from "../hooks/useJobFilters";
+import JobFilters from "../components/JobFilters";
 import { StatCardSkeleton } from "../components/Skeleton";
 import { useTitle } from "../hooks/useTitle";
 
@@ -52,17 +54,18 @@ export default function Overview() {
   const [loading, setLoading] = useState(true);
   const [fetcherStatus, setFetcherStatus] = useState("");
   const { progress, running: fetcherRunning, startFetcher } = useFetcher();
+  const [searchParams] = useSearchParams();
   const timelineRef = useRef<HTMLCanvasElement>(null);
   const skillsRef = useRef<HTMLCanvasElement>(null);
   const timelineChartRef = useRef<Chart | null>(null);
   const skillsChartRef = useRef<Chart | null>(null);
 
   useEffect(() => {
-    api.stats.overview().then((d) => {
+    api.stats.overview(jobFilterParams(searchParams)).then((d) => {
       setData(d as unknown as OverviewData);
       setLoading(false);
     });
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!data || loading) return;
@@ -227,6 +230,8 @@ export default function Overview() {
           {fetcherStatus}
         </div>
       )}
+
+      <JobFilters />
 
       {/* Stats */}
       <div className="ov-stats">

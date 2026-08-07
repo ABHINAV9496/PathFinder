@@ -15,7 +15,15 @@ JUNK_DOMAINS = {
     "accenture.com", "deloitte.com", "ey.com", "pwc.com",
     "kpmg.com", "mba.com", "no-reply", "donotreply",
     "mailer-daemon", "postmaster", "noreply",
+    # Feed publishers use these placeholder domains when a job lists no
+    # contact address (e.g. Adzuna's 'your.email@domain.com').
+    "domain.com", "yourdomain.com", "yourcompany.com", "yourname.com",
 }
+
+# Placeholder local-parts embedded by job feeds (Adzuna and others) when a
+# posting has no real contact address: 'your.email@...', 'your_name@...',
+# 'your-name@...', 'youremail@...', 'yourname@...', 'yourcontact@...'.
+EMAIL_PLACEHOLDER_RE = re.compile(r"^your(?:\.|-|_)?(?:email|name|contact)@", re.IGNORECASE)
 
 SPAM_DOMAINS = [
     "linkedin.com", "indeed.com", "glassdoor.com", "naukri.com",
@@ -35,6 +43,9 @@ def is_company_email(email: str) -> tuple:
     if not EMAIL_REGEX.match(email):
         return False, "invalid format"
 
+    if EMAIL_PLACEHOLDER_RE.match(email):
+        return False, "placeholder"
+
     domain = email.split("@")[-1]
 
     if domain in JUNK_DOMAINS:
@@ -44,6 +55,49 @@ def is_company_email(email: str) -> tuple:
         return False, f"job board domain: {domain}"
 
     return True, "valid"
+
+
+# Some job boards (e.g. Cutshort) render a company's pitch/tagline as the
+# "company" name when the legal name is missing. Emails cannot be verified
+# against such values, so they are treated as unverifiable junk.
+_JUNK_COMPANY_PREFIXES = (
+    "a leading ",
+    "a global ",
+    "a trusted ",
+    "one of the ",
+    "the leading ",
+    "building ",
+    "hiring for ",
+    "we are ",
+    "we're ",
+    "looking for ",
+)
+
+_JUNK_COMPANY_PHRASES = (
+    " is hiring",
+    " is looking for",
+    " backed by",
+    " in partnership with",
+    " solutions provider",
+    " digital transformation",
+)
+
+
+def is_junk_company_name(company: str) -> bool:
+    """True when a ``company`` value is really a tagline or description, so an
+    email cannot be verified against it. Conservative: short values and legal
+    names (e.g. 'SMARTHMS & SOLUTIONS (P) Ltd') are never flagged."""
+    if not company:
+        return False
+    name = company.strip()
+    low = name.lower()
+    if len(low) < 20:
+        return False
+    if low.endswith("."):
+        return True
+    if any(p in low for p in _JUNK_COMPANY_PHRASES):
+        return True
+    return low.startswith(_JUNK_COMPANY_PREFIXES)
 
 
 def make_uid(title: str, company: str, location: str = "") -> str:
