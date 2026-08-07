@@ -6,7 +6,29 @@ logger = logging.getLogger(__name__)
 
 PROFILE_JSON = Path(__file__).resolve().parent.parent.parent / "profile.json"
 
+# Profession-neutral category weights. Any category not listed here (including
+# every user-defined one) gets a neutral weight of 5. These generic labels are
+# used by the onboarding wizard; legacy tech labels are kept for backwards
+# compatibility with existing profile.json files.
 DEFAULT_CATEGORY_WEIGHTS = {
+    # generic / neutral
+    "core": 20,
+    "core_skills": 20,
+    "specialties": 16,
+    "specialized": 14,
+    "techniques": 12,
+    "languages": 12,
+    "certifications": 8,
+    "licenses": 8,
+    "qualifications": 12,
+    "clinical": 14,
+    "patient_care": 16,
+    "documentation": 8,
+    "communication": 8,
+    "management": 10,
+    "teaching": 12,
+    "tools": 6,
+    # legacy tech labels (backwards compatibility)
     "backend": 20,
     "ai_llm": 14,
     "data": 14,
@@ -19,12 +41,19 @@ DEFAULT_CATEGORY_WEIGHTS = {
     "sales": 5,
     "content": 5,
     "finance": 5,
-    "tools": 4,
 }
 
 DEFAULT_CATEGORY_GROUPS = {
-    "must_have": ["backend", "ai_llm", "data", "design", "marketing", "mobile"],
-    "nice_to_have": ["cloud", "devops", "frontend", "sales", "content", "finance"],
+    "must_have": [
+        "core", "core_skills", "specialties", "specialized", "qualifications",
+        "clinical", "patient_care", "teaching", "management", "backend",
+        "ai_llm", "data", "design", "marketing", "mobile",
+    ],
+    "nice_to_have": [
+        "techniques", "languages", "communication", "certifications",
+        "licenses", "documentation", "cloud", "devops", "frontend", "sales",
+        "content", "finance",
+    ],
     "bonus": ["tools"],
 }
 
