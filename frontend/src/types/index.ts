@@ -52,6 +52,10 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
+export interface ApplicationListResponse extends PaginatedResponse<Application> {
+  counts: { all: number; sent: number; failed: number };
+}
+
 export interface SecurityStatus {
   sender_email: string;
   has_password: boolean;
