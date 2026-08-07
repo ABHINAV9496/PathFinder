@@ -29,28 +29,32 @@ DEFAULT_CATEGORY_GROUPS = {
 }
 
 DEFAULT_PROFILE = {
-    "name": "Your Name",
-    "email": "you@example.com",
+    "name": "",
+    "email": "",
     "phone": "",
+    "profession": "",
     "role": "",
     "experience_years": 0,
     "experience_min": 0,
     "experience_max": 3,
     "location": "",
     "country": "",
-    "currency": "INR",
+    "timezone": "",
+    "currency": "USD",
     "min_salary": 0,
     "github": "",
     "linkedin": "",
     "portfolio": "",
+    "website": "",
     "skills": {},
     "projects": [],
     "experience": [],
     "education": "",
-    "languages": ["English"],
+    "languages": [],
     "looking_for": [],
     "excluded_roles": [],
     "excluded_locations": [],
+    "prefers_remote": False,
 }
 
 
@@ -62,13 +66,46 @@ def _merge_defaults(data: dict) -> dict:
     return merged
 
 
-def load_profile() -> dict:
-    """Load profile from profile.json (the single source of truth).
+def _legacy_profile_py() -> dict:
+    """Return PROFILE from the legacy ``config/profile.py`` when present.
 
-    Never imports ``config/profile.py``, so a fresh clone without
-    ``config/profile.py`` boots cleanly. Missing keys fall back to
-    ``DEFAULT_PROFILE`` so downstream code can assume a full shape.
+    This file is gitignored and optional. It is only used as a bootstrap
+    source: real values in it fill the profile until the user saves their own
+    profile.json, and never override explicitly saved values.
     """
+    try:
+        from config import profile as _legacy
+
+        data = getattr(_legacy, "PROFILE", None)
+        if isinstance(data, dict):
+            return dict(data)
+    except ImportError:
+        pass
+    return {}
+
+
+def load_profile() -> dict:
+    """Load the profile from its sources, in precedence order.
+
+    Precedence (lowest to highest):
+      1. ``DEFAULT_PROFILE`` (built-in safe defaults)
+      2. ``config/profile.py`` ``PROFILE`` (legacy, optional)
+      3. ``profile.json`` (the real source of truth)
+
+    profile.json entries that are still equal to the built-in defaults are
+    treated as "never customized" so a legacy ``config/profile.py`` value is
+    not clobbered by an empty default written at bootstrap.
+
+    Never imports profile data at module import time beyond this function, so a
+    fresh clone without ``config/profile.py`` boots cleanly.
+    """
+    merged = dict(DEFAULT_PROFILE)
+
+    legacy = _legacy_profile_py()
+    for k, v in legacy.items():
+        if k != "PROFILE":
+            merged[k] = v
+
     if PROFILE_JSON.exists():
         try:
             with open(PROFILE_JSON, "r", encoding="utf-8") as f:
@@ -76,10 +113,13 @@ def load_profile() -> dict:
             if "PROFILE" in data:
                 data = data["PROFILE"]
             if isinstance(data, dict):
-                return _merge_defaults(data)
+                for k, v in data.items():
+                    if v == DEFAULT_PROFILE.get(k):
+                        continue
+                    merged[k] = v
         except (json.JSONDecodeError, ValueError, OSError) as e:
             logger.warning(f"Failed to load profile.json: {e}, using defaults")
-    return dict(DEFAULT_PROFILE)
+    return merged
 
 
 def save_profile(profile: dict) -> bool:

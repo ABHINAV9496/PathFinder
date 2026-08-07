@@ -66,6 +66,12 @@ def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(x) for x in v.split(".")[:2])
 
 
+def venv_python() -> str:
+    """Return the project venv interpreter, falling back to the current one."""
+    path = ROOT / ".venv" / ("Scripts" if IS_WIN else "bin") / "python.exe"
+    return str(path) if path.exists() else sys.executable
+
+
 # -- checks -------------------------------------------------------------------
 
 def check_python() -> None:
@@ -148,7 +154,7 @@ def ensure_profile_json() -> None:
 
 def migrate() -> None:
     banner("Running database migrations")
-    run([sys.executable, "manage.py", "migrate"])
+    run([venv_python(), "manage.py", "migrate"])
 
 
 def install_frontend_deps() -> None:
@@ -249,18 +255,18 @@ def run_app() -> None:
     print("  Press Ctrl+C to stop all.\n")
 
     backend = subprocess.Popen(
-        [sys.executable, "manage.py", "runserver"],
+        [venv_python(), "manage.py", "runserver"],
         cwd=ROOT,
         shell=IS_WIN,
     )
     cv_engine = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app.main:app",
+        [venv_python(), "-m", "uvicorn", "app.main:app",
          "--host", "0.0.0.0", "--port", "8001"],
         cwd=ROOT / "cv-engine",
         shell=IS_WIN,
     )
     cover_letter_engine = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "coverletter.main:app",
+        [venv_python(), "-m", "uvicorn", "coverletter.main:app",
          "--host", "0.0.0.0", "--port", "8002"],
         cwd=ROOT / "cover-letter-engine",
         shell=IS_WIN,
