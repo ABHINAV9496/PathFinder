@@ -20,7 +20,10 @@ cd jobbloot
 python setup.py
 ```
 
-This installs all Python and frontend dependencies, creates `.env` and `config/profile.py` from templates, and runs migrations. Then edit `.env` and `config/profile.py` with your own values.
+This installs all Python and frontend dependencies, creates `.env`, creates
+`profile.json` from safe defaults (with an interactive profile wizard), and runs
+migrations. Then edit `.env` and run `python setup.py --profile` (or the
+`/profile` page) with your own values.
 
 ## Development
 
@@ -82,7 +85,10 @@ static/        — CSS
 
 ## Adding a New Skill Weight
 
-Edit `config/profile.py`:
+Skill weights are derived from your `profile.json` skill categories (any
+category not listed in `DEFAULT_CATEGORY_WEIGHTS` gets a neutral weight of 5).
+A legacy `config/profile.py` `SKILL_WEIGHTS` is only used when the profile has
+no skills:
 
 ```python
 SKILL_WEIGHTS = {

@@ -10,14 +10,19 @@ What it does:
   3. Installs Python dependencies  (uv sync)
   4. Copies .env.example -> .env   (if .env missing) + generates secret key
   5. Creates profile.json from built-in defaults (if missing)
-  6. Runs database migrations
-  7. Installs frontend dependencies (npm install)
-  8. Optionally starts both backend + frontend
+  6. Runs the interactive profile wizard (first run only)
+  7. Runs database migrations
+  8. Installs frontend dependencies (npm install)
+  9. Optionally starts both backend + frontend
+
+Flags:
+  python setup.py --profile      Always run the interactive profile wizard
+  python setup.py --no-profile   Never run the wizard
 
 profile.json is the single source of truth for the job matcher and the
 CV Engine. It is created automatically with safe defaults, so the app
-boots with zero configuration. Edit it (or the /profile page) with your
-real info.
+boots with zero configuration. The wizard (or the /profile page) fills it
+in with your real info -- any profession, any country.
 """
 
 from __future__ import annotations
@@ -138,18 +143,142 @@ def copy_env() -> None:
     info("Edit .env to set EMAIL_USER / EMAIL_PASS for auto-apply")
 
 
-def ensure_profile_json() -> None:
+def ensure_profile_json() -> bool:
+    """Create profile.json with safe defaults when missing.
+
+    Returns True when the file was created (a fresh install).
+    """
     banner("Candidate profile")
     try:
         from apps.jobs.profile_manager import ensure_default_profile
     except Exception as e:
         fail(f"Could not create profile.json: {e}")
-        return
+        return False
     if ensure_default_profile():
         ok("Created profile.json with default values")
+        return True
+    info("profile.json already exists -- skipping")
+    return False
+
+
+# -- profile wizard -------------------------------------------------------------
+
+def _ask(prompt: str, current: str = "") -> str:
+    """Prompt the user, keeping ``current`` on blank input."""
+    suffix = f" [{current}]" if current else ""
+    value = input(f"  {prompt}{suffix}: ").strip()
+    return value or current
+
+
+def _ask_int(prompt: str, current: int) -> int:
+    value = _ask(prompt, str(current) if current else "")
+    try:
+        return int(value)
+    except ValueError:
+        return current
+
+
+def _ask_list(prompt: str, current: list[str]) -> list[str]:
+    value = _ask(prompt, ", ".join(current))
+    if not value:
+        return current
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def profile_wizard(force: bool = False) -> None:
+    """Interactively build profile.json, pre-filled from legacy config.
+
+    Runs through ``apps.jobs.profile_manager`` so legacy ``config/profile.py``
+    values (if present) are honored and the result is saved to profile.json.
+    Set ``force`` to re-run even when a profile is already configured.
+    """
+    banner("Profile wizard")
+    try:
+        from apps.jobs.profile_manager import load_profile, save_profile
+        from common.profession_packs import KNOWN_PROFESSIONS
+    except Exception as e:
+        fail(f"Could not load profile module: {e}")
+        return
+
+    profile = load_profile()
+
+    if not force and profile.get("name"):
+        ok(f"Profile already configured for {profile['name']} -- skipping wizard")
+        return
+
+    print("  Press Enter on any question to keep the current/default value.")
+    print("  Leave 'Full name' blank to abort and keep defaults.\n")
+
+    print("  -- Personal info")
+    name = _ask("Full name", profile.get("name", ""))
+    if not name:
+        info("No name entered -- keeping defaults, skipping wizard")
+        return
+    profile["name"] = name
+    profile["email"] = _ask("Email", profile.get("email", ""))
+    profile["phone"] = _ask("Phone", profile.get("phone", ""))
+    profile["location"] = _ask("Location (city)", profile.get("location", ""))
+    profile["country"] = _ask("Country", profile.get("country", ""))
+
+    print("\n  -- Profession (any field -- not just software)")
+    print("  Known professions:")
+    for label in sorted({v for v in KNOWN_PROFESSIONS.values()}):
+        print(f"    - {label}")
+    profile["profession"] = _ask(
+        "Profession (or type your own)", profile.get("profession", "")
+    )
+    profile["role"] = _ask("Current job title / role", profile.get("role", ""))
+    profile["experience_years"] = _ask_int(
+        "Years of experience", profile.get("experience_years", 0) or 0
+    )
+
+    print("\n  -- Salary / currency")
+    currency = _ask("Currency (INR / USD / EUR / GBP)", profile.get("currency", "USD"))
+    profile["currency"] = currency.upper() if currency else "USD"
+    profile["min_salary"] = _ask_int(
+        f"Minimum monthly salary in {profile['currency']} (0 = no minimum)",
+        profile.get("min_salary", 0) or 0,
+    )
+
+    print("\n  -- Skills (grouped by category)")
+    print("  Enter one category per line as  name: skill1, skill2")
+    print("  e.g.  patient_care: wound care, medication administration")
+    print("  Leave blank to keep the current skills.\n")
+    skills = dict(profile.get("skills") or {})
+    for cat, items in skills.items():
+        print(f"    {cat}: {', '.join(items)}")
+    line = input("  Add a skill category (blank to keep): ").strip()
+    if line:
+        cat, _, rest = line.partition(":")
+        cat = cat.strip()
+        if cat:
+            skills[cat] = [s.strip() for s in rest.split(",") if s.strip()]
+    profile["skills"] = skills
+
+    print("\n  -- What you are looking for")
+    profile["looking_for"] = _ask_list(
+        "Roles you are looking for (comma-separated)",
+        profile.get("looking_for", []) or [],
+    )
+    profile["languages"] = _ask_list(
+        "Languages you speak (comma-separated)",
+        profile.get("languages", []) or [],
+    )
+
+    print("\n  -- Projects (used as evidence in cover letters)")
+    projects = list(profile.get("projects") or [])
+    while True:
+        pname = input("  Project name (blank to finish): ").strip()
+        if not pname:
+            break
+        desc = input("  One-line description: ").strip()
+        projects.append({"name": pname, "description": desc, "tech": []})
+    profile["projects"] = projects
+
+    if save_profile(profile):
+        ok(f"Saved profile.json for {name}")
     else:
-        info("profile.json already exists -- skipping")
-    info("Edit profile.json (or use the /profile page) with your real info")
+        fail("Could not save profile.json")
 
 
 def migrate() -> None:
@@ -167,6 +296,12 @@ def install_frontend_deps() -> None:
 def main() -> None:
     banner("JobbLoot -- Setup")
     print("  This script installs everything you need in one go.\n")
+    print("  Flags:")
+    print("    --profile       run the interactive profile wizard")
+    print("    --no-profile    skip the wizard (default: run on first install)\n")
+
+    force_profile = "--profile" in sys.argv[1:]
+    skip_profile = "--no-profile" in sys.argv[1:]
 
     check_python()
     check_node()
@@ -174,7 +309,9 @@ def main() -> None:
 
     install_python_deps()
     copy_env()
-    ensure_profile_json()
+    profile_created = ensure_profile_json()
+    if not skip_profile and (force_profile or profile_created):
+        profile_wizard(force=force_profile)
     migrate()
     install_frontend_deps()
 
@@ -201,20 +338,26 @@ def main() -> None:
       > Go to https://myaccount.google.com/apppasswords
       > Create one for "Mail" > "Other (Custom name)" > name it "JobbLoot"
 
-  Step 2 -- Edit your profile (profile.json)
-  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    profile.json was created with safe defaults. Open it and fill in:
+  Step 2 -- Your profile (profile.json)
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    If you skipped the profile wizard, run it anytime with:
+      > python setup.py --profile
+
+    Or edit profile.json directly, or use the /profile page. Fill in:
 
       Your name, email, phone number
-      Your country + currency (INR / USD / EUR / GBP)
+      Your profession + country + currency (INR / USD / EUR / GBP)
       Your minimum expected salary (min_salary)
-      Your skills (backend, frontend, cloud, etc.)
-      Your projects (name, description, tech stack)
+      Your skills (patient_care, core, teaching, etc.)
+      Your projects (name, description)
       What jobs you are looking for (looking_for)
       Roles to exclude (excluded_roles) or locations to skip (excluded_locations)
 
     The matcher uses this to score jobs against your profile, for any
     profession -- not just software development.
+
+    Legacy note: an old config/profile.py is still honored as a fallback,
+    but profile.json is the single source of truth.
 
   Step 3 -- Start the app
   ~~~~~~~~~~~~~~~~~~~~~~~
@@ -246,7 +389,7 @@ def main() -> None:
 
 
 def run_app() -> None:
-    """Start Django backend + CV Engine + Cover Letter Engine + Vite frontend in parallel. Ctrl+C kills all."""
+    """Start all services in parallel; Ctrl+C kills everything."""
     banner("Starting JobbLoot")
     print("  Backend            -> http://localhost:8000")
     print("  CV Engine          -> http://localhost:8001")
