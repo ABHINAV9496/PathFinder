@@ -105,3 +105,9 @@ export interface TailoredCVResponse {
   summary?: string;
   sections_used?: string[];
 }
+
+export interface FilterOptions {
+  sources: string[];
+  locations: string[];
+  work_types: string[];
+}

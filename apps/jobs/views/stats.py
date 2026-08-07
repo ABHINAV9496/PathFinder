@@ -5,28 +5,38 @@ from rest_framework.response import Response
 
 from apps.jobs.models import Job, Application, SkillLog, DailyStats, RawJob
 from apps.jobs.views.base import BaseAPIView
+from apps.jobs.views.list_filters import apply_job_filters, apply_application_filters
 from config.settings import DASHBOARD_STATS_DAYS
 
 
 class OverviewStats(BaseAPIView):
     def get(self, request):
-        total_jobs = RawJob.objects.count()
-        total_matched = Job.objects.exclude(status="ignored").count()
-        total_applied = Application.objects.filter(status="sent").count()
-        total_failed = Application.objects.filter(status="failed").count()
-        total_ignored = Job.objects.filter(status="ignored").count()
-        total_web_apply = Application.objects.filter(status="web_apply").count()
+        params = request.query_params
+
+        total_jobs = apply_job_filters(RawJob.objects.all(), params).count()
+        matched_jobs = apply_job_filters(
+            Job.objects.exclude(status="ignored"), params
+        )
+        total_matched = matched_jobs.count()
+        total_ignored = apply_job_filters(
+            Job.objects.filter(status="ignored"), params
+        ).count()
+
+        apps = apply_application_filters(
+            Application.objects.select_related("job"), params
+        )
+        total_applied = apps.filter(status="sent").count()
+        total_failed = apps.filter(status="failed").count()
+        total_web_apply = apps.filter(status="web_apply").count()
 
         recent_jobs = list(
-            Job.objects
-            .exclude(status="ignored")
+            matched_jobs
             .values("id", "title", "company", "location", "match_score", "status", "fetched_date")
             .order_by("-fetched_date")[:10]
         )
 
         recent_apps = list(
-            Application.objects
-            .select_related("job")
+            apps
             .values(
                 "id", "job__id", "job__title", "job__company",
                 "job__match_score", "status", "sent_at"

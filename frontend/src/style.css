@@ -7741,3 +7741,219 @@ textarea.form-control {
 }
 
 .onb-summary strong { color: var(--text); }
+
+/* ===== Job filters (source / location / work type) ===== */
+.jf-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 16px;
+}
+
+.jf-filter {
+  position: relative;
+}
+
+.jf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.jf-btn:hover {
+  border-color: var(--border-h);
+  color: var(--text);
+}
+
+.jf-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(37,99,235,.04);
+}
+
+.jf-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.jf-chevron {
+  color: var(--muted);
+  opacity: .7;
+}
+
+.jf-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+  padding: 6px;
+}
+
+.jf-search {
+  padding: 2px 2px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.jf-search input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.jf-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.jf-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.jf-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+  transition: background var(--transition);
+}
+
+.jf-item:hover {
+  background: var(--surface-2);
+}
+
+.jf-item.active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.jf-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.jf-item-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jf-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.jf-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.jf-actions button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 2px 4px;
+}
+
+.jf-actions button:hover {
+  text-decoration: underline;
+}
+
+.jf-item-single {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 8px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.jf-item-single:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.jf-item-single.active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.jf-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all var(--transition);
+}
+
+.jf-clear:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.jf-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}

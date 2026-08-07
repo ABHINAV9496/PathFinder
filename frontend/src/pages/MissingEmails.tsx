@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useTitle } from "../hooks/useTitle";
+import { jobFilterParams } from "../hooks/useJobFilters";
+import JobFilters from "../components/JobFilters";
 import type { Job } from "../types";
 
 function MatchRing({ pct }: { pct: number }) {
@@ -26,14 +28,16 @@ export default function MissingEmails() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    api.missingEmails.list().then((d: any) => {
+    setLoading(true);
+    api.missingEmails.list(jobFilterParams(searchParams)).then((d: any) => {
       setJobs(d.jobs || []);
       setTotalCount(d.total_count || 0);
       setLoading(false);
     });
-  }, []);
+  }, [searchParams]);
 
   return (
     <>
@@ -49,6 +53,8 @@ export default function MissingEmails() {
           {totalCount} jobs
         </div>
       </div>
+
+      <JobFilters />
 
       <div className="me-info-banner">
         <div className="me-info-icon">

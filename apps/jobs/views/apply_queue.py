@@ -10,6 +10,7 @@ from rest_framework.decorators import api_view
 from apps.jobs.models import Application, Job, JobEvent, CredStore
 from apps.jobs.views.base import BaseAPIView
 from apps.jobs.serializers.job import JobSerializer
+from apps.jobs.views.list_filters import apply_job_filters
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class ApplyQueueList(BaseAPIView):
             .exclude(apply_email="")
             .order_by("-match_score")
         )
+        jobs = apply_job_filters(jobs, request.query_params)
 
         page, paginator = self.paginate(jobs, request)
         serializer = JobSerializer(page, many=True)

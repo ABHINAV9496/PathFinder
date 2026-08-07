@@ -3,6 +3,12 @@ from django.db.models import Q
 from apps.jobs.models import Job
 from apps.jobs.serializers import JobSerializer, JobDetailSerializer
 from apps.jobs.views.base import BaseAPIView
+from apps.jobs.views.list_filters import apply_job_filters, filter_options
+
+
+class JobFiltersOptions(BaseAPIView):
+    def get(self, request):
+        return self.success(filter_options())
 
 
 class JobList(BaseAPIView):
@@ -10,7 +16,6 @@ class JobList(BaseAPIView):
         jobs = Job.objects.all()
 
         status_filter = request.query_params.get("status", "all")
-        location_filter = request.query_params.get("location", "all")
         salary_filter = request.query_params.get("salary", "all")
         sort = request.query_params.get("sort", "-match_score")
         search = request.query_params.get("search", "")
@@ -20,17 +25,7 @@ class JobList(BaseAPIView):
         else:
             jobs = jobs.exclude(status="ignored")
 
-        if location_filter == "kerala":
-            jobs = jobs.filter(location__icontains="kerala")
-        elif location_filter == "india":
-            jobs = jobs.filter(
-                Q(location__icontains="india") | Q(location__icontains="kerala") |
-                Q(location__icontains="bangalore") | Q(location__icontains="mumbai") |
-                Q(location__icontains="chennai") | Q(location__icontains="hyderabad") |
-                Q(location__icontains="pune") | Q(location__icontains="delhi")
-            )
-        elif location_filter == "remote":
-            jobs = jobs.filter(location__icontains="remote")
+        jobs = apply_job_filters(jobs, request.query_params)
 
         if salary_filter == "has":
             jobs = jobs.filter(salary__gt=0)

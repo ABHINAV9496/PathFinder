@@ -10,6 +10,7 @@ from apps.jobs.views import (
     GenerateCoverLetter,
     GenerateTemplateCoverLetter,
 )
+from apps.jobs.views.jobs import JobFiltersOptions
 from apps.jobs.views.fetcher import run_fetcher, fetcher_status
 from apps.jobs.views.apply_queue import apply_progress
 from apps.jobs.views.generate_cv import GenerateCV
@@ -19,6 +20,7 @@ from apps.jobs.views.tailored_apply import TailoredApply
 api_urlpatterns = [
     # Jobs
     path("jobs/", JobList.as_view(), name="api_job_list"),
+    path("jobs/filters/", JobFiltersOptions.as_view(), name="api_job_filters"),
     path("jobs/<int:job_id>/", JobDetail.as_view(), name="api_job_detail"),
 
     # Applications
