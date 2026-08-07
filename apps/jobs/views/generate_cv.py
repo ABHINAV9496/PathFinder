@@ -29,16 +29,26 @@ _SECTION_ALIASES = {
     "academic qualifications": "education",
 }
 
-_CATEGORY_LABELS = {
-    "backend": "Backend",
-    "frontend": "Frontend",
-    "ai_llm": "AI / LLM",
-    "ai": "AI / LLM",
-    "cloud": "Cloud & Infra",
-    "cloud_infra": "Cloud & Infra",
-    "devops": "DevOps",
-    "devops_ci": "DevOps & CI/CD",
-    "tools": "Tools & CI/CD",
+def _category_label(cat: str) -> str:
+    """Human label for a skills category — title-cased, no tech map."""
+    return cat.replace("_", " ").title() or cat
+
+
+def _header_urls(profile: dict) -> str:
+    """Header link labels, only for URLs present in the profile."""
+    labels = []
+    if profile.get("github"):
+        labels.append("GitHub")
+    if profile.get("linkedin"):
+        labels.append("LinkedIn")
+    if profile.get("portfolio"):
+        labels.append("Website")
+    return " · ".join(labels)
+
+
+_SENIORITY_WORDS = {
+    "senior", "lead", "principal", "staff", "head", "chief", "junior",
+    "associate", "intern", "fresher", "mid-level", "midlevel", "mid",
 }
 
 _HIGH_SEVERITY_GAPS = {
@@ -128,13 +138,12 @@ def _profile_sections(profile: dict) -> dict:
             profile.get("phone", ""),
             profile.get("email", ""),
         ])),
-        " · ".join(filter(None, ["GitHub", "LinkedIn", "Portfolio"])),
+        _header_urls(profile),
     ]
     sections["header"] = [h for h in sections["header"] if h]
     for cat, skills in profile.get("skills", {}).items():
         if skills:
-            label = _CATEGORY_LABELS.get(cat.lower(), cat.replace("_", " ").title())
-            sections["skills"][label] = list(skills)
+            sections["skills"][_category_label(cat)] = list(skills)
     for p in profile.get("projects", []):
         sections["projects"].append(f"{p.get('name', '')} — {p.get('description', '')}")
         tech = ", ".join(p.get("tech", [])[:10])
@@ -168,8 +177,7 @@ def _enrich_sections(sections: dict, profile: dict) -> dict:
     if not sections["skills"]:
         for cat, skills in profile.get("skills", {}).items():
             if skills:
-                label = _CATEGORY_LABELS.get(cat.lower(), cat.replace("_", " ").title())
-                sections["skills"][label] = list(skills)
+                sections["skills"][_category_label(cat)] = list(skills)
     if not sections["projects"]:
         for p in profile.get("projects", []):
             sections["projects"].append(f"{p.get('name', '')} — {p.get('description', '')}")
@@ -207,7 +215,7 @@ def _enrich_sections(sections: dict, profile: dict) -> dict:
                 profile.get("phone", ""),
                 profile.get("email", ""),
             ])),
-            " · ".join(filter(None, ["GitHub", "LinkedIn", "Portfolio"])),
+            _header_urls(profile),
         ]
         sections["header"] = [h for h in sections["header"] if h]
     return sections
@@ -229,80 +237,48 @@ def _reorder_skills(skills_by_cat: dict, matched_skills: list) -> dict:
     return ordered
 
 
-_TITLE_KEYWORDS = (
-    "python", "backend", "frontend", "full-stack", "full stack", "fullstack",
-    "django", "developer", "engineer", "ai", "llm",
-)
-
-
-def _has_skills(profile: dict, *keywords: str) -> bool:
-    all_skills = " ".join(
-        s.lower()
-        for cat in profile.get("skills", {}).values()
-        for s in cat
-    )
-    return any(k in all_skills for k in keywords)
+def _strip_seniority(title: str) -> str:
+    words = [w for w in title.split() if w.lower() not in _SENIORITY_WORDS]
+    return " ".join(words).strip()
 
 
 def _choose_header_title(job, profile: dict) -> str:
-    """Pick a header title the candidate can legitimately claim for this job.
+    """Pick a header title the candidate can legitimately claim.
 
-    Never copies the JD title blindly: the chosen title must be backed by the
-    candidate's actual skills. Falls back to the profile role when nothing
-    is claimable."""
-    jd_title = (getattr(job, "title", "") or "").lower()
-    has_backend = _has_skills(profile, "python", "django", "drf", "fastapi", "flask", "sqlalchemy", "celery", "postgresql")
-    has_frontend = _has_skills(profile, "react", "react.js", "reactjs", "typescript", "tailwind", "vue", "javascript")
-    has_ai = _has_skills(profile, "llm", "groq", "openai", "langchain", "ai", "ast parsing")
-
-    fullstack = any(k in jd_title for k in ("full stack", "fullstack", "full-stack"))
-    backend = any(k in jd_title for k in ("backend", "back-end", "back end"))
-    frontend = any(k in jd_title for k in ("frontend", "front-end", "front end"))
-    python = "python" in jd_title
-    django = "django" in jd_title
-    ai = (
-        any(k in jd_title for k in ("llm", "genai", "generative", "openai", "groq"))
-        or " ai" in jd_title
-        or jd_title.startswith("ai")
-        or "ai/" in jd_title
-        or "/ai" in jd_title
-    )
-
-    if ai and has_ai:
-        title = "Python AI/LLM Developer" if python else "AI/LLM Developer"
-    elif fullstack and has_frontend and has_backend:
-        title = "Python Full-Stack Developer"
-    elif backend and has_backend:
-        title = "Python Backend Developer" if python else "Backend Developer"
-    elif django and has_backend:
-        title = "Django Developer"
-    elif frontend and has_frontend:
-        title = "Frontend Developer"
-    elif python and has_backend:
-        title = "Python Developer"
-    else:
-        title = profile.get("role") or "Python Full-Stack Developer"
-
-    if "engineer" in jd_title:
-        title = title.replace(" Developer", " Engineer")
-    return title
+    Prefers the candidate's own profile role (seniority stripped), falls back
+    to the JD title normalized the same way, and finally to a neutral label.
+    Profession-agnostic by construction.
+    """
+    role = (profile.get("role") or "").strip()
+    if role:
+        return _strip_seniority(role) or role
+    jd_title = (getattr(job, "title", "") or "").strip()
+    if jd_title:
+        return _strip_seniority(jd_title) or "Professional"
+    return "Professional"
 
 
 def _build_summary(profile: dict, job, matched_skills: list) -> str:
-    role = _choose_header_title(job, profile) or getattr(job, "title", "") or "Software Developer"
+    role = _choose_header_title(job, profile) or getattr(job, "title", "") or "Professional"
     years = profile.get("experience_years")
     project = getattr(job, "relevant_project", None) or {}
-    strengths = ", ".join(matched_skills[:6]) if matched_skills else "Python web development"
+    if matched_skills:
+        strengths = ", ".join(matched_skills[:6])
+    else:
+        all_skills = [
+            s for cat in profile.get("skills", {}).values() for s in cat
+        ]
+        strengths = ", ".join(all_skills[:6]) if all_skills else "industry-standard skills"
     parts = []
     if years:
         parts.append(
-            f"{role} with {years}+ year of hands-on experience designing, building "
-            "and shipping production-ready web applications and APIs."
+            f"{role} with {years}+ years of hands-on experience delivering "
+            "high-quality, results-driven work."
         )
     else:
         parts.append(
-            f"{role} focused on designing, building and shipping "
-            "production-ready web applications and APIs."
+            f"{role} focused on delivering high-quality, results-driven work "
+            "with measurable outcomes."
         )
     if project.get("description"):
         parts.append(
@@ -331,7 +307,7 @@ def _build_tailored_text(sections: dict, profile: dict, job, matched_skills: lis
     lines.append("PROFESSIONAL SUMMARY")
     lines.append(_build_summary(profile, job, matched_skills))
     lines.append("")
-    lines.append("TECHNICAL SKILLS")
+    lines.append("SKILLS")
     for cat, skills in _reorder_skills(sections.get("skills", {}), matched_skills).items():
         if skills:
             lines.append(f"{cat}: {', '.join(skills)}")
@@ -389,15 +365,13 @@ def _compute_ats_estimate(job, profile: dict, matched_skills: list, skill_gaps: 
 
     jd_title_norm = _norm(getattr(job, "title", "") or "")
     title_norm = _norm(title)
-    title_terms = [t for t in _TITLE_KEYWORDS if t in jd_title_norm]
-    if title_terms:
-        title_match = int(
-            sum(1 for t in title_terms if t in title_norm)
-            / len(title_terms)
-            * 100
-        )
+    if jd_title_norm and (jd_title_norm in title_norm or title_norm in jd_title_norm):
+        title_match = 100
     else:
-        title_match = 70
+        jd_words = set(jd_title_norm.split())
+        title_words = set(title_norm.split())
+        overlap = len(jd_words & title_words)
+        title_match = int(overlap / len(jd_words) * 100) if jd_words else 70
 
     score = int(
         0.25 * skills_match
@@ -599,9 +573,12 @@ def _resume_to_html(text: str, profile: dict = None, project_url_map: dict = Non
 
     url_map = {}
     if profile:
-        if profile.get("linkedin"): url_map["linkedin"] = profile["linkedin"]
-        if profile.get("portfolio"): url_map["portfolio"] = profile["portfolio"]
-        if profile.get("github"): url_map["github"] = profile["github"]
+        if profile.get("linkedin"):
+            url_map["linkedin"] = profile["linkedin"]
+        if profile.get("portfolio"):
+            url_map["portfolio"] = profile["portfolio"]
+        if profile.get("github"):
+            url_map["github"] = profile["github"]
 
     for line in lines:
         stripped = line.strip()
@@ -633,7 +610,9 @@ def _resume_to_html(text: str, profile: dict = None, project_url_map: dict = Non
 
         if stripped.startswith("\u2022") or stripped.startswith("- "):
             content = stripped.lstrip("\u2022- ")
-            html_parts.append(f'<div class="bullet"><span class="bullet-char">\u2022</span>{content}</div>')
+            html_parts.append(
+                f'<div class="bullet"><span class="bullet-char">\u2022</span>{content}</div>'
+            )
             continue
 
         if in_projects:
@@ -668,7 +647,12 @@ def _resume_to_html(text: str, profile: dict = None, project_url_map: dict = Non
             )
             continue
 
-        date_match = re.search(r'(\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s*[–\-]\s*(Present|Current|\d{4})\b|\b\d{4}\s*[–\-]\s*(Present|Current|\d{4})\b|\b\w+\s+\d{4}\b)', stripped)
+        date_match = re.search(
+            r'(\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s*[–\-]\s*'
+            r'(Present|Current|\d{4})\b|\b\d{4}\s*[–\-]\s*(Present|Current|\d{4})\b|'
+            r'\b\w+\s+\d{4}\b)',
+            stripped,
+        )
         if date_match and len(stripped) > len(date_match.group()) + 5:
             parts = stripped.rsplit(date_match.group(), 1)
             html_parts.append(
@@ -679,14 +663,21 @@ def _resume_to_html(text: str, profile: dict = None, project_url_map: dict = Non
             )
             continue
 
-        _COMPANY_SUFFIXES = {"Solutions", "Technologies", "Ltd", "Inc", "Tech", "Digital", "Labs", "Systems", "Software", "Group", "Corp", "LLC"}
+        _company_suffixes = {
+            "Solutions", "Technologies", "Ltd", "Inc", "Tech", "Digital",
+            "Labs", "Systems", "Software", "Group", "Corp", "LLC",
+        }
         if header_count >= 4:
             location_match = re.search(r'\s{3,}(\S.*)$', stripped)
             if not location_match:
                 location_match = re.search(r',\s*([A-Z][a-zA-Z\s]+)$', stripped)
-            if not location_match and any(suffix in stripped for suffix in _COMPANY_SUFFIXES):
+            if not location_match and any(suffix in stripped for suffix in _company_suffixes):
                 location_match = re.search(r'[,]\s*(\w+.*)$', stripped)
-            if location_match and location_match.group(1) and not any(c.isdigit() for c in location_match.group(1)[:3]):
+            if (
+                location_match
+                and location_match.group(1)
+                and not any(c.isdigit() for c in location_match.group(1)[:3])
+            ):
                 parts = stripped.rsplit(location_match.group(1), 1)
                 html_parts.append(
                     f'<table class="two-col"><tr>'
@@ -711,7 +702,8 @@ def _resume_to_html(text: str, profile: dict = None, project_url_map: dict = Non
         ".header-contact{text-align:center;font-size:7.5pt;color:#555;margin-bottom:1px;}"
         ".header-urls{text-align:center;font-size:7.5pt;color:#555;margin-bottom:4px;}"
         ".spacer{height:3px;}"
-        "h2.section-title{font-size:9.5pt;font-weight:bold;margin:5px 0 2px 0;padding:0;border-bottom:1px solid #ccc;}"
+        "h2.section-title{font-size:9.5pt;font-weight:bold;margin:5px 0 2px 0;"
+        "padding:0;border-bottom:1px solid #ccc;}"
         ".bullet{margin:0 0 0 0;padding-left:12px;font-size:8pt;line-height:1.25;}"
         ".bullet-char{margin-left:-12px;float:left;width:12px;}"
         "table.two-col{width:100%;margin:0;border-collapse:collapse;}"
@@ -755,7 +747,12 @@ class GenerateCV(BaseAPIView):
         resume_text = _extract_resume_text()
         profile["resume_text"] = resume_text
 
-        if not resume_text and not profile.get("skills") and not profile.get("experience") and not profile.get("projects"):
+        if (
+            not resume_text
+            and not profile.get("skills")
+            and not profile.get("experience")
+            and not profile.get("projects")
+        ):
             return self.error(
                 "No resume content found. Upload your resume PDF in Profile settings.",
                 status.HTTP_400_BAD_REQUEST,
@@ -830,7 +827,7 @@ class GenerateCV(BaseAPIView):
         pdf_bytes = _generate_pdf(tailored_text, profile, project_url_map)
         pdf_base64_str = base64.b64encode(pdf_bytes).decode() if pdf_bytes else ""
 
-        filename = f"{profile.get('name', 'Developer').replace(' ', '_')}.pdf"
+        filename = f"{profile.get('name', 'Profile').replace(' ', '_')}.pdf"
 
         response_data = {
             "tailored_resume": tailored_text,

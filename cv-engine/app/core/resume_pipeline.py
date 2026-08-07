@@ -30,25 +30,22 @@ _SECTION_ALIASES = {
     "academic qualifications": "education",
 }
 
-_CATEGORY_LABELS = {
-    "backend": "Backend",
-    "frontend": "Frontend",
-    "ai_llm": "AI / LLM",
-    "ai": "AI / LLM",
-    "cloud": "Cloud & Infra",
-    "cloud_infra": "Cloud & Infra",
-    "devops": "DevOps",
-    "devops_ci": "DevOps & CI/CD",
-    "tools": "Tools & CI/CD",
-    "data": "Data",
-    "analytics": "Analytics",
-    "design": "Design",
-    "mobile": "Mobile",
-    "marketing": "Marketing",
-    "content": "Content",
-    "sales": "Sales",
-    "finance": "Finance",
-}
+def _category_label(cat: str) -> str:
+    """Human label for a skills category — title-cased, no tech map."""
+    return cat.replace("_", " ").title() or cat
+
+
+def _header_urls(profile: dict) -> str:
+    """Header link labels, only for URLs present in the profile."""
+    labels = []
+    if profile.get("github"):
+        labels.append("GitHub")
+    if profile.get("linkedin"):
+        labels.append("LinkedIn")
+    if profile.get("portfolio"):
+        labels.append("Website")
+    return " · ".join(labels)
+
 
 _SENIORITY_WORDS = {
     "senior", "lead", "principal", "staff", "head", "chief", "junior",
@@ -148,13 +145,12 @@ def profile_sections(profile: dict) -> dict:
             profile.get("phone", ""),
             profile.get("email", ""),
         ])),
-        " · ".join(filter(None, ["GitHub", "LinkedIn", "Portfolio"])),
+        _header_urls(profile),
     ]
     sections["header"] = [h for h in sections["header"] if h]
     for cat, skills in profile.get("skills", {}).items():
         if skills:
-            label = _CATEGORY_LABELS.get(cat.lower(), cat.replace("_", " ").title())
-            sections["skills"][label] = list(skills)
+            sections["skills"][_category_label(cat)] = list(skills)
     for p in profile.get("projects", []):
         sections["projects"].append(f"{p.get('name', '')} — {p.get('description', '')}")
         tech = ", ".join(p.get("tech", [])[:10])
@@ -188,8 +184,7 @@ def enrich_sections(sections: dict, profile: dict) -> dict:
     if not sections["skills"]:
         for cat, skills in profile.get("skills", {}).items():
             if skills:
-                label = _CATEGORY_LABELS.get(cat.lower(), cat.replace("_", " ").title())
-                sections["skills"][label] = list(skills)
+                sections["skills"][_category_label(cat)] = list(skills)
     if not sections["projects"]:
         for p in profile.get("projects", []):
             sections["projects"].append(f"{p.get('name', '')} — {p.get('description', '')}")
@@ -227,7 +222,7 @@ def enrich_sections(sections: dict, profile: dict) -> dict:
                 profile.get("phone", ""),
                 profile.get("email", ""),
             ])),
-            " · ".join(filter(None, ["GitHub", "LinkedIn", "Portfolio"])),
+            _header_urls(profile),
         ]
         sections["header"] = [h for h in sections["header"] if h]
     return sections
@@ -263,13 +258,13 @@ def build_summary(profile: dict, job: dict, matched_skills: list) -> str:
     parts = []
     if years:
         parts.append(
-            f"{role} with {years}+ year of hands-on experience designing, building "
-            "and shipping production-ready work with measurable results."
+            f"{role} with {years}+ years of hands-on experience delivering "
+            "high-quality, results-driven work."
         )
     else:
         parts.append(
-            f"{role} focused on designing, building and shipping "
-            "production-ready work with measurable results."
+            f"{role} focused on delivering high-quality, results-driven work "
+            "with measurable outcomes."
         )
     if project.get("description"):
         parts.append(
@@ -298,7 +293,7 @@ def build_tailored_text(sections: dict, profile: dict, job: dict, matched_skills
     lines.append("PROFESSIONAL SUMMARY")
     lines.append(build_summary(profile, job, matched_skills))
     lines.append("")
-    lines.append("TECHNICAL SKILLS")
+    lines.append("SKILLS")
     for cat, skills in reorder_skills(sections.get("skills", {}), matched_skills).items():
         if skills:
             lines.append(f"{cat}: {', '.join(skills)}")
@@ -322,6 +317,7 @@ def make_urls_clickable(text: str, url_map: dict) -> str:
         "github": "GitHub",
         "linkedin": "LinkedIn",
         "portfolio": "Portfolio",
+        "website": "Website",
     }
     result = text
     for key, display in label_map.items():

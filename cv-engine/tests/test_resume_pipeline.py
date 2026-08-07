@@ -152,3 +152,64 @@ def test_build_tailored_cv_returns_text_and_pdf():
     assert "Data Analyst" in text
     assert isinstance(url_map, dict)
     assert isinstance(pdf, bytes)
+
+
+NURSE_PROFILE = {
+    "name": "Maya Nurse",
+    "role": "Registered Nurse",
+    "experience_years": 3,
+    "email": "maya@example.com",
+    "skills": {
+        "clinical_care": ["patient care", "medication administration"],
+        "documentation": ["care planning", "EMR"],
+    },
+    "projects": [
+        {"name": "Community Clinic", "description": "Volunteer clinic intake", "link": ""},
+    ],
+}
+
+NURSE_JOB = {
+    "title": "Staff Nurse",
+    "company": "City General Hospital",
+    "description": "Registered nurse for patient care and medication administration.",
+    "relevant_project": {},
+}
+
+
+def test_generic_category_labels_have_no_tech_map():
+    sections = profile_sections(NURSE_PROFILE)
+    labels = set(sections["skills"].keys())
+    assert labels == {"Clinical Care", "Documentation"}
+
+
+def test_header_urls_only_show_present_links():
+    sections = profile_sections(NURSE_PROFILE)
+    assert all("GitHub" not in line and "LinkedIn" not in line for line in sections["header"])
+
+    p = dict(NURSE_PROFILE, github="https://github.com/maya", linkedin="https://linkedin.com/in/maya")
+    sections = profile_sections(p)
+    joined = " · ".join(sections["header"])
+    assert "GitHub" in joined
+    assert "LinkedIn" in joined
+    assert "Website" not in joined
+
+
+def test_build_tailored_text_uses_generic_labels_for_nurse():
+    text = build_tailored_text(
+        profile_sections(NURSE_PROFILE), NURSE_PROFILE, NURSE_JOB, ["patient care"]
+    )
+    assert "SKILLS" in text
+    assert "Clinical Care" in text
+    assert "TECHNICAL SKILLS" not in text
+    assert "PROFESSIONAL SUMMARY" in text
+    assert "Maya Nurse" in text
+
+
+def test_build_summary_is_profession_neutral():
+    from app.core.resume_pipeline import build_summary
+
+    text = build_summary(NURSE_PROFILE, NURSE_JOB, ["patient care"])
+    assert "Maya Nurse" not in text
+    assert "designing" not in text
+    assert "shipping" not in text
+    assert "results-driven" in text
