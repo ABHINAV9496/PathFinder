@@ -20,15 +20,25 @@ from coverletter.core.templates import select
 
 
 def _signature(profile: dict) -> str:
-    lines = [profile.get("name", "").strip() or "Sincerely"]
-    if profile.get("phone"):
-        lines.append(profile["phone"].strip())
-    if profile.get("email"):
-        lines.append(profile["email"].strip())
-    for key in ("portfolio", "github", "linkedin"):
-        if profile.get(key):
-            lines.append(profile[key].strip())
-    return "\n".join(lines)
+    name = profile.get("name", "").strip() or "Sincerely"
+    phone = profile.get("phone", "").strip()
+    portfolio = profile.get("portfolio", "").strip()
+    github = profile.get("github", "").strip()
+    linkedin = profile.get("linkedin", "").strip()
+
+    lines = [name]
+    if phone:
+        lines.append(phone)
+    links = []
+    if portfolio:
+        links.append(f"Portfolio: {portfolio}")
+    if github:
+        links.append(f"GitHub: {github}")
+    if linkedin:
+        links.append(f"LinkedIn: {linkedin}")
+    if links:
+        lines.append(" | ".join(links))
+    return "Regards,\n" + "\n".join(lines)
 
 
 def _join_and(items) -> str:

@@ -165,7 +165,10 @@ def pack_for_job(job: dict, profile: dict) -> dict:
     """Detect a pack from a JD, preferring the profile pack on ties.
 
     Used by the cover-letter engine: the JD's own language may reveal a
-    profession (e.g. a nurse job) even when the profile is sparse.
+    profession (e.g. a nurse job) even when the profile is sparse. The
+    profile's own pack always participates in scoring and keeps any tie,
+    so a Python developer never gets design-pack wording just because
+    another pack matched the JD equally well.
     """
     jd_text = " ".join([
         str(job.get("title") or ""),
@@ -176,9 +179,12 @@ def pack_for_job(job: dict, profile: dict) -> dict:
         return detect_profession(profile)
 
     best = detect_profession(profile)
-    best_score = 0
+    best_id = best.get("id")
+    best_score = sum(1 for kw in best.get("detect_keywords") or []
+                     if kw and kw.lower() in jd_text)
     for pack in _load_all().values():
-        if pack.get("id") == "neutral":
+        pack_id = pack.get("id")
+        if pack_id == "neutral" or pack_id == best_id:
             continue
         score = sum(1 for kw in pack.get("detect_keywords") or []
                     if kw and kw.lower() in jd_text)

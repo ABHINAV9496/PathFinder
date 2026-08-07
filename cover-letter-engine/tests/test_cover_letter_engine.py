@@ -141,6 +141,43 @@ def test_pack_letter_is_grounded_in_resume():
     assert "Community Health Clinic" in letter
 
 
+def test_profile_pack_wins_tie_over_other_pack():
+    # JD where design_creative and it_software match equally (2 keywords);
+    # a Python developer must keep the it_software wording, not design's.
+    job = {
+        "title": "Python Developer",
+        "company": "UNFYD",
+        "description": (
+            "We are a fast-paced SaaS startup building customer-facing products. "
+            "We need a Python developer who cares about our customers and clients, "
+            "moves fast, and ships."
+        ),
+        "matched_skills": ["Python", "Django", "React", "AWS", "Docker", "CI/CD", "Git"],
+        "missing_keywords": [],
+    }
+    letter, meta = generator.generate_cover_letter(job, DEV_PROFILE)
+    assert meta["source"] == "pack"
+    assert meta["template"] == "it_software"
+    assert "building software that works" in letter
+    assert "owned the code end to end" in letter
+    assert "work that communicates" not in letter
+
+
+def test_deterministic_signature_format():
+    from coverletter.core.generator import _signature
+
+    sig = _signature(DEV_PROFILE)
+    assert sig == (
+        "Regards,\n"
+        "Dennis Joseph\n"
+        "555-0101\n"
+        "Portfolio: https://dennis.example.com | "
+        "GitHub: https://github.com/dennis | "
+        "LinkedIn: https://www.linkedin.com/in/dennis"
+    )
+    assert "dennis@example.com" not in sig
+
+
 def test_ai_generation_runs_validation(monkeypatch):
     def fake_call(
         system, user, api_key, api_base_url, model,
