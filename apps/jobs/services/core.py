@@ -1,17 +1,21 @@
-import json
-import re
 import logging
-import time
-from datetime import date
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date
 
 import httpx
 from django.db.models import Count
 
-from apps.jobs.models import Job, Application, SkillLog, DailyStats, RawJob, JobEvent
+from apps.jobs.models import Application, DailyStats, Job, JobEvent, RawJob, SkillLog
+from common.utils import (
+    EMAIL_REGEX,
+    html_to_markdown,
+    is_junk_company_name,
+)
+from common.utils import (
+    is_company_email as _validate_company_email,
+)
 from config.constants import RECRUITER_KEYWORDS
-from config.settings import MIN_SALARY
-from common.utils import is_company_email as _validate_company_email, EMAIL_REGEX, JUNK_DOMAINS, html_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -427,6 +431,9 @@ def is_company_email(email: str, company: str = "") -> bool:
     if not is_valid:
         return False
 
+    if company and is_junk_company_name(company):
+        return False
+
     email = email.lower().strip()
     domain = email.split("@")[1]
 
@@ -451,6 +458,26 @@ def is_company_email(email: str, company: str = "") -> bool:
 def _extract_emails_from_text(text: str) -> list[str]:
     raw = EMAIL_REGEX.findall(text)
     return [e.lower() for e in raw if is_company_email(e)]
+
+
+def _company_domain_related(email: str, company: str) -> bool:
+    """True when the email's domain plausibly belongs to ``company``.
+
+    Job-board pages (e.g. Cutshort) interleave emails from several companies,
+    so an email scraped from such a page is only trusted when its domain
+    overlaps the company's name. Sub-domains and 'Name.ai'-style suffixes are
+    handled by comparing the registrable base against the name slug.
+    """
+    if not company:
+        return True
+    domain = email.lower().split("@")[-1]
+    slug = re.sub(r"[^a-z0-9]", "", company.lower())
+    if not slug or len(slug) < 3:
+        return False
+    if slug in domain:
+        return True
+    base = domain.split(".")[0]
+    return len(base) >= 3 and base in slug
 
 
 def _get_http_client() -> httpx.Client:
@@ -567,7 +594,16 @@ def find_job_email(job: dict, client: httpx.Client | None = None) -> str:
             if resp.status_code == 200:
                 all_emails = _extract_emails_from_text(resp.text)
                 company = job.get("company", "")
-                emails = [e for e in all_emails if is_company_email(e, company)]
+                if is_junk_company_name(company):
+                    logger.info(f"  Skipping email scrape for unverifiable company: {company!r}")
+                    emails = []
+                elif company:
+                    emails = [
+                        e for e in all_emails
+                        if is_company_email(e, company) and _company_domain_related(e, company)
+                    ]
+                else:
+                    emails = all_emails
             else:
                 emails = []
         except Exception:
