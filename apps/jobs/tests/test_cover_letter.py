@@ -4,6 +4,31 @@ from apps.jobs.models import Job
 from apps.jobs.services.cover_letter_client import CoverLetterEngineUnavailableError
 
 
+def test_fallback_uses_profession_pack():
+    from apps.jobs.cv_engine.cover_templates import generate_cover_letter_template
+
+    job = {
+        "title": "Staff Nurse",
+        "company": "City General Hospital",
+        "description": "Registered nurse for patient care at our hospital.",
+        "matched_skills": ["patient care", "medication administration"],
+    }
+    profile = {
+        "name": "Maya Nurse",
+        "role": "Registered Nurse",
+        "experience_years": 3,
+        "skills": {"clinical": ["patient care", "medication administration"]},
+        "projects": [
+            {"name": "Community Clinic", "description": "Volunteer clinic intake", "tech": []}
+        ],
+    }
+    letter, template = generate_cover_letter_template(job, profile)
+    assert template == "healthcare"
+    assert "City General Hospital" in letter
+    assert "Maya Nurse" in letter
+    assert "{" not in letter and "}" not in letter
+
+
 def _make_job(**overrides):
     data = {
         "title": "Senior Data Analyst",

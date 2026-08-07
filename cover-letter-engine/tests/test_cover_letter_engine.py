@@ -61,6 +61,86 @@ def test_template_empty_profile_does_not_crash():
     assert "Acme Corp" in letter
 
 
+NURSE_JOB = {
+    "title": "Staff Nurse",
+    "company": "City General Hospital",
+    "description": (
+        "We need a registered nurse for patient care, medication administration, "
+        "and care planning at our hospital."
+    ),
+    "matched_skills": ["patient care", "medication administration", "care planning"],
+}
+
+NURSE_PROFILE = {
+    "name": "Maya Nurse",
+    "role": "Registered Nurse",
+    "experience_years": 3,
+    "skills": {
+        "clinical": ["patient care", "medication administration", "care planning", "EMR"],
+    },
+    "projects": [{
+        "name": "Community Health Clinic",
+        "description": "Volunteer clinic delivering patient intake and follow-up care",
+        "tech": [],
+    }],
+}
+
+
+def test_generator_uses_profession_pack_for_nurse_job():
+    letter, meta = generator.generate_cover_letter(NURSE_JOB, NURSE_PROFILE)
+    assert meta["source"] == "pack"
+    assert meta["template"] == "healthcare"
+    assert "City General Hospital" in letter
+    assert "Maya Nurse" in letter
+    assert "{" not in letter and "}" not in letter
+
+
+def test_generator_uses_neutral_pack_for_unknown_profession():
+    job = {
+        "title": "General Helper",
+        "company": "Example Co",
+        "description": (
+            "We need a dependable person to help the team with everyday tasks and shared goals."
+        ),
+    }
+    profile = {
+        "name": "O",
+        "role": "Generalist",
+        "experience_years": 2,
+        "skills": {"core": ["communication", "teamwork"]},
+    }
+    letter, meta = generator.generate_cover_letter(job, profile)
+    assert meta["source"] == "pack"
+    assert meta["template"] == "neutral"
+    assert "Example Co" in letter
+
+
+def test_generator_letters_vary_by_job_for_same_profile():
+    startup_job = {
+        **DATA_ANALYST_JOB,
+        "description": DATA_ANALYST_JOB["description"] + " Fast-paced startup that ships quickly.",
+    }
+    formal_job = {
+        **DATA_ANALYST_JOB,
+        "description": DATA_ANALYST_JOB["description"]
+        + " Formal enterprise compliance environment.",
+    }
+    letter_a, meta_a = generator.generate_cover_letter(startup_job, DATA_ANALYST_PROFILE)
+    letter_b, meta_b = generator.generate_cover_letter(formal_job, DATA_ANALYST_PROFILE)
+    assert meta_a["source"] == "pack"
+    assert meta_b["source"] == "pack"
+    assert letter_a != letter_b
+
+
+def test_pack_letter_is_grounded_in_resume():
+    letter, meta = generator.generate_cover_letter(
+        NURSE_JOB, NURSE_PROFILE,
+        resume_text="Performed patient care and medication administration at a community clinic.",
+    )
+    assert meta["grounded_in_resume"]
+    assert "Community Health Clinic" in letter
+
+
 def test_ai_generation_runs_validation(monkeypatch):
     def fake_call(
         system, user, api_key, api_base_url, model,

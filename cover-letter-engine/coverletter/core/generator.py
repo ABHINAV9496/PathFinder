@@ -1,15 +1,20 @@
-"""Deterministic, profession-agnostic template cover-letter generator.
+"""Deterministic, profession-agnostic cover-letter generator.
 
-Selects one of 12 hardcoded ATS-friendly templates based on JD signals
-(domain, seniority, tone, JD emphasis) and fills it with the candidate's
-own data: matched skills (filtered against missing keywords), best-fit
-projects, and grounded resume lines. No LLM, no hallucination risk.
+Primary path: detect the best-matching profession pack from the job +
+profile and compose a unique letter from that pack's scored block pools
+(one opening, two to three bodies, one closing). Fallback path: the 12
+hardcoded ATS-friendly templates selected from JD signals (domain,
+seniority, tone, JD emphasis). Either way the letter is filled with the
+candidate's own data: matched skills (filtered against missing keywords),
+best-fit projects, and grounded resume lines. No LLM, no hallucination
+risk.
 """
 
 import re
 from types import SimpleNamespace
 
 from coverletter.core import classify
+from coverletter.core.packs import compose_cover_letter, pack_for_job
 from coverletter.core.tailor import flatten_skills, tailor_cv
 from coverletter.core.templates import select
 
@@ -100,17 +105,21 @@ def _need_hook(job: dict, company: str) -> str:
     desc = (job.get("description") or "").lower()
     hooks = []
     if any(w in desc for w in ["scalable", "scale", "high traffic", "millions"]):
-        hooks.append(f"scalable systems that handle real traffic at {company}")
+        hooks.append(f"work that has to perform at real scale, like what {company} does")
     if any(w in desc for w in ["api", "rest", "microservice"]):
-        hooks.append(f"clean, well-designed APIs at {company}")
+        hooks.append(f"building dependable systems and integrations at {company}")
     if any(w in desc for w in ["saas", "platform", "product"]):
-        hooks.append(f"production SaaS products at {company}")
+        hooks.append(f"building a product people rely on at {company}")
     if any(w in desc for w in ["fast-paced", "move fast", "ship"]):
-        hooks.append(f"moving fast and shipping at {company}")
+        hooks.append(f"moving fast and shipping real results at {company}")
     if any(w in desc for w in ["security", "auth", "rbac", "compliance"]):
-        hooks.append(f"secure, production-grade systems at {company}")
+        hooks.append(f"keeping the work secure and dependable at {company}")
     if any(w in desc for w in ["ai", "ml", "llm", "machine learning"]):
-        hooks.append(f"AI-powered products at {company}")
+        hooks.append(f"building modern products powered by AI and data at {company}")
+    if any(w in desc for w in ["patient", "care", "health"]):
+        hooks.append(f"the standard of care and service {company} is known for")
+    if any(w in desc for w in ["customer", "client", "service"]):
+        hooks.append(f"serving the customers and clients {company} works with")
     if hooks:
         return hooks[0]
     return f"the work your team is doing at {company}"
@@ -191,7 +200,7 @@ def _build_context(job: dict, profile: dict, resume_text: str, matched_skills: l
     primary_name = primary.get("name", "")
     primary_desc = (primary.get("description") or "").lower()
     primary_tech = ", ".join(primary.get("tech", [])[:6])
-    primary_ref = primary_name or "a full-stack application end to end"
+    primary_ref = primary_name or "work I have delivered end to end"
     secondary_ref = (
         f"{secondary.get('name', '')} -- {(secondary.get('description') or '').lower()}"
         if secondary else ""
@@ -210,6 +219,19 @@ def _build_context(job: dict, profile: dict, resume_text: str, matched_skills: l
     emphases = features["emphases"]
     lines = _emphasis_lines(job, profile, emphases)
 
+    depth_case = features["seniority"] == "senior" and (profile.get("experience_years") or 0) < 3
+    if depth_case:
+        depth = (
+            "My years on paper don't tell the whole story: I have owned meaningful "
+            "work from start to finish -- the decisions, the trade-offs, and the "
+            "quality of what goes out. That is what this role actually needs."
+        )
+    else:
+        depth = (
+            "Over time I have moved from doing tasks well to owning outcomes: the "
+            "planning, the execution, the quality, and the results that go out."
+        )
+
     return SimpleNamespace(
         company=company,
         company_possessive=_company_ref(company, "possessive"),
@@ -226,7 +248,8 @@ def _build_context(job: dict, profile: dict, resume_text: str, matched_skills: l
         secondary_ref=secondary_ref,
         evidence_sentence=evidence_sentence,
         need=_need_hook(job, company),
-        depth_case=features["seniority"] == "senior" and (profile.get("experience_years") or 0) < 3,
+        depth=depth,
+        depth_case=depth_case,
         matched=matched,
         relevant=relevant,
         grounded=grounded,
@@ -235,21 +258,57 @@ def _build_context(job: dict, profile: dict, resume_text: str, matched_skills: l
     )
 
 
+def _pack_values(ctx) -> dict:
+    """Map the canonical pack placeholders onto the built generator context."""
+    return {
+        "company": ctx.company,
+        "possessive": ctx.company_possessive,
+        "title": ctx.title,
+        "skills": ctx.skills_text,
+        "primary": ctx.primary_ref,
+        "evidence": ctx.evidence_sentence,
+        "need": ctx.need,
+        "depth": ctx.depth,
+    }
+
+
+def _render_pack_body(pack: dict, features: dict, ctx) -> str | None:
+    """Compose a body from the pack's block pools; None when the pack has no
+    usable blocks for this seniority tier or a block references an unknown
+    placeholder (caller then falls back to the hardcoded templates)."""
+    body = compose_cover_letter(pack, features)
+    if not body:
+        return None
+    try:
+        return body.format_map(_pack_values(ctx))
+    except (KeyError, ValueError, IndexError):
+        return None
+
+
 def generate_cover_letter(job: dict, profile: dict, resume_text: str = "") -> tuple[str, dict]:
     result = tailor_cv(job, profile)
     features = classify.extract(job, profile)
     ctx = _build_context(job, profile, resume_text, result.matched_skills)
 
-    template = select(features)
-    body = template["render"](ctx)
-    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    pack = pack_for_job(job, profile)
+    body = _render_pack_body(pack, features, ctx)
+    if body is None:
+        template = select(features)
+        body = template["render"](ctx)
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+        template_id = template["id"]
+        source = "deterministic"
+    else:
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+        template_id = pack.get("id", "neutral")
+        source = "pack"
 
     letter = f"Dear Hiring Manager,\n\n{body}\n\n{_signature(profile)}"
 
     return letter, {
         "matched_skills": ctx.matched,
-        "source": "deterministic",
-        "template": template["id"],
+        "source": source,
+        "template": template_id,
         "evidence_count": len(ctx.relevant),
         "grounded_in_resume": ctx.grounded,
         "missing_keywords": job.get("missing_keywords") or [],

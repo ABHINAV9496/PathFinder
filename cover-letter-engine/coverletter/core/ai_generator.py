@@ -15,6 +15,8 @@ import re
 
 import httpx
 
+from coverletter.core.packs import pack_for_job
+
 logger = logging.getLogger(__name__)
 
 REASONING_MODELS = {
@@ -98,8 +100,44 @@ def _compute_skill_gap(job: dict, profile: dict) -> tuple[str, str]:
     return has_text, missing_text
 
 
-def _build_system_prompt(signature: str) -> str:
-    return f"""You are a professional cover letter writer for a software developer.
+_PROFESSION_LABELS = {
+    "healthcare": "healthcare",
+    "education": "education",
+    "finance_accounting": "finance and accounting",
+    "it_software": "software development",
+    "engineering": "engineering",
+    "marketing_sales": "marketing and sales",
+    "hospitality": "hospitality",
+    "trades_construction": "trades and construction",
+    "design_creative": "design and creative",
+    "legal": "legal",
+    "admin_operations": "administration and operations",
+    "science_research": "science and research",
+    "retail_customer_service": "retail and customer service",
+    "hr_people": "HR and people operations",
+}
+
+
+def _detected_profession(job: dict, profile: dict) -> str:
+    """Human label for the best-matching profession pack (prompt input)."""
+    try:
+        pack = pack_for_job(job, profile)
+    except Exception:
+        return "software development"
+    pack_id = pack.get("id", "neutral")
+    if pack_id == "it_software":
+        return "software development"
+    if pack_id == "neutral":
+        return "a professional"
+    return _PROFESSION_LABELS.get(pack_id, "a professional")
+
+
+def _build_system_prompt(signature: str, profession: str = "software development") -> str:
+    if profession and profession != "a professional":
+        opener = f"You are a professional cover letter writer for {profession} roles."
+    else:
+        opener = "You are a professional cover letter writer."
+    return f"""{opener}
 
 OUTPUT RULES:
 - Output ONLY the cover letter. No labels, no analysis, no commentary.
@@ -216,10 +254,10 @@ FINAL CHECK (do this silently before outputting):
 - Only output the final, corrected version -- never show your proofreading process."""
 
 
-def _build_user_prompt(job: dict, profile: dict) -> str:
-    name = profile.get("name", "Developer")
-    location = profile.get("location", "India")
-    role = profile.get("role", "Full Stack Developer")
+def _build_user_prompt(job: dict, profile: dict, profession: str = "a professional") -> str:
+    name = profile.get("name", "Candidate")
+    location = profile.get("location", "Not specified")
+    role = profile.get("role", "a professional")
     experience_years = profile.get("experience_years", 1)
 
     experience = profile.get("experience", [])
@@ -273,6 +311,7 @@ JOB DESCRIPTION:
 CANDIDATE:
 Name: {name}
 Role: {role}
+DETECTED PROFESSION: {profession}
 Experience: {experience_years} year(s) -- {exp_text}
 CANDIDATE TOTAL EXPERIENCE: {experience_years} year(s)
 CANDIDATE LOCATION: {profile.get('location', 'Not specified')}
@@ -807,8 +846,9 @@ def generate_ai_letter(job: dict, profile: dict, ai: dict,
         raise AIGenerationError("ai_config_incomplete")
 
     signature = _signature(profile)
-    system_prompt = _build_system_prompt(signature)
-    user_prompt = _build_user_prompt(job, profile)
+    profession = _detected_profession(job, profile)
+    system_prompt = _build_system_prompt(signature, profession)
+    user_prompt = _build_user_prompt(job, profile, profession)
 
     letter = _call_llm(system_prompt, user_prompt, api_key, api_base_url, model, provider)
     letter = _clean(letter)

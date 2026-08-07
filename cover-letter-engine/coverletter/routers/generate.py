@@ -34,7 +34,7 @@ async def generate(request: GenerateRequest, _auth: bool = Depends(verify_servic
     )
     return GenerateResponse(
         cover_letter=letter,
-        template_used="deterministic",
+        template_used=metadata.get("template", "deterministic"),
         tailored=bool(metadata["matched_skills"]),
         mode="template",
     )
